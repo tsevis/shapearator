@@ -198,6 +198,65 @@ def test_find_local_llamacpp_files(tmp_path):
     assert files is not None and files.mmproj_path.name.startswith("mmproj")
 
 
+_CACHE_LIST_OUTPUT = """number of models in cache: 5
+   1. ggml-org/gemma-4-12B-it-GGUF:Q4_K_M
+   2. cjpais/llava-1.6-mistral-7b-gguf:Q4_K_M
+   3. unsloth/Qwen3.6-27B-GGUF:Q4_K_M
+   4. openbmb/MiniCPM-V-4.6-gguf:Q4_K_M
+   5. ggml-org/moondream2-20250414-GGUF:VICUNA
+"""
+
+
+def test_list_cache_refs_parses_llama_cli(monkeypatch):
+    from services import llamacpp_models as lm
+
+    monkeypatch.setattr(lm.shutil, "which", lambda _b: "/usr/bin/llama-cli")
+    monkeypatch.setattr(lm.subprocess, "run", lambda *a, **k: MagicMock(stdout=_CACHE_LIST_OUTPUT))
+    refs = lm.list_cache_refs()
+    assert "cjpais/llava-1.6-mistral-7b-gguf:Q4_K_M" in refs
+    assert len(refs) == 5
+
+
+def test_cached_vision_models_filters_to_vision(monkeypatch):
+    from services import llamacpp_models as lm
+
+    monkeypatch.setattr(lm.shutil, "which", lambda _b: "/usr/bin/llama-cli")
+    monkeypatch.setattr(lm.subprocess, "run", lambda *a, **k: MagicMock(stdout=_CACHE_LIST_OUTPUT))
+    keys = {spec.key for _ref, spec in lm.cached_vision_models()}
+    # llava, minicpm-v, moondream are vision; gemma and qwen3.6-text are not.
+    assert keys == {"llava", "minicpm-v", "moondream"}
+
+
+def test_available_startable_prefers_downloaded_over_cache(monkeypatch, tmp_path):
+    from services import llamacpp_models as lm
+
+    # moondream downloaded locally, plus llava + moondream in the cache.
+    spec = spec_by_key("moondream")
+    target = mb.llamacpp_target_dir(str(tmp_path), spec)
+    target.mkdir(parents=True)
+    (target / "moondream2.gguf").write_bytes(b"w")
+    (target / "moondream2-mmproj.gguf").write_bytes(b"m")
+    monkeypatch.setattr(lm.shutil, "which", lambda _b: "/usr/bin/llama-cli")
+    monkeypatch.setattr(lm.subprocess, "run", lambda *a, **k: MagicMock(stdout=_CACHE_LIST_OUTPUT))
+
+    startable = lm.available_startable_models(str(tmp_path))
+    by_name = {m.display_name: m for m in startable}
+    assert by_name["moondream2"].source == "downloaded"  # local wins over cache
+    assert by_name["LLaVA"].source == "cache"
+    assert by_name["LLaVA"].hf_ref == "cjpais/llava-1.6-mistral-7b-gguf:Q4_K_M"
+
+
+def test_list_downloaded_llamacpp_enumerates_complete_models(tmp_path):
+    spec = spec_by_key("moondream")
+    assert mb.list_downloaded_llamacpp(str(tmp_path)) == []  # nothing downloaded
+    target = mb.llamacpp_target_dir(str(tmp_path), spec)
+    target.mkdir(parents=True)
+    (target / "moondream2-text.gguf").write_bytes(b"w")
+    (target / "moondream2-mmproj.gguf").write_bytes(b"m")
+    downloaded = mb.list_downloaded_llamacpp(str(tmp_path))
+    assert [s.key for s, _ in downloaded] == ["moondream"]
+
+
 # --------------------------------------------------------------------------
 # First-run orchestration
 # --------------------------------------------------------------------------

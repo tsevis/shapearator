@@ -138,18 +138,27 @@ def test_llamacpp_client_handles_list_content(tmp_path):
 # --- registry discovery ---------------------------------------------------
 
 @pytest.mark.parametrize(
-    "name,priority",
+    "name,expected_key",
     [
-        ("Qwen2.5-VL-3B-Instruct-Q4.gguf", 1),
-        ("qwen2.5vl:3b", 1),
-        ("minicpm-v:latest", 2),
-        ("moondream2.gguf", 3),
-        ("llava-v1.6.gguf", 4),
-        ("random-model.gguf", 500),
+        ("Qwen3-VL-8B-Instruct-Q4_K_M.gguf", "qwen3-vl"),
+        ("Qwen2.5-VL-3B-Instruct-Q4.gguf", "qwen2.5-vl"),
+        ("qwen2.5vl:3b", "qwen2.5-vl"),
+        ("minicpm-v:latest", "minicpm-v"),
+        ("moondream2.gguf", "moondream"),
+        ("llava-v1.6.gguf", "llava"),
     ],
 )
-def test_classify_vision_model(name, priority):
-    assert classify_vision_model(name)[0] == priority
+def test_classify_vision_model_maps_to_family(name, expected_key):
+    # Derive the expected priority from the catalog so renumbering can't break this.
+    from services.model_catalog import spec_by_key
+
+    priority, _recommendation, vision = classify_vision_model(name)
+    assert vision is True
+    assert priority == spec_by_key(expected_key).priority
+
+
+def test_classify_unknown_model_is_low_priority():
+    assert classify_vision_model("random-model.gguf")[0] >= 500
 
 
 def test_list_llamacpp_models_parses_v1_models():

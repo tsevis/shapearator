@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import queue
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
 from services.config_store import AppSettings
+from services.llamacpp_models import StartableLlamaModel, available_startable_models
+from services.llamacpp_server import LlamaCppServerManager
+from services.model_catalog import spec_for_model_name
 from services.model_registry import ModelDescriptor, ModelRegistry
 
 
@@ -27,6 +32,9 @@ class SettingsTab(ttk.Frame):
         self.llamacpp_recommendation_var = tk.StringVar(value="")
         self.ollama_models: list[ModelDescriptor] = []
         self.llamacpp_models: list[ModelDescriptor] = []
+        self.startable_llamacpp: list[StartableLlamaModel] = []
+        self.server_manager = LlamaCppServerManager()
+        self._server_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
         self._build()
         self.refresh_models()
 
@@ -71,7 +79,11 @@ class SettingsTab(ttk.Frame):
         self.llamacpp_combo = ttk.Combobox(card, textvariable=self.llamacpp_model_var, state="readonly")
         self.llamacpp_combo.grid(row=8, column=1, sticky="ew", padx=(12, 12), pady=(10, 0))
         self.llamacpp_combo.bind("<<ComboboxSelected>>", lambda _event: self._emit_change())
-        ttk.Button(card, text="Use Recommended", command=self._use_recommended_llamacpp).grid(row=8, column=2, sticky="e", pady=(10, 0))
+        llamacpp_buttons = ttk.Frame(card)
+        llamacpp_buttons.grid(row=8, column=2, sticky="e", pady=(10, 0))
+        ttk.Button(llamacpp_buttons, text="Use Recommended", command=self._use_recommended_llamacpp).pack(side="left", padx=(0, 6))
+        self.start_server_btn = ttk.Button(llamacpp_buttons, text="Start Server", command=self._start_llamacpp_server)
+        self.start_server_btn.pack(side="left")
         ttk.Label(card, textvariable=self.llamacpp_recommendation_var, wraplength=760, justify="left").grid(
             row=9, column=0, columnspan=3, sticky="w", pady=(10, 0)
         )
@@ -98,7 +110,7 @@ class SettingsTab(ttk.Frame):
 
         ttk.Label(
             card,
-            text="Recommended local vision stack for this app: Qwen2.5-VL first, MiniCPM-V second, moondream for fastest passes, LLaVA as fallback. Works with either Ollama or a llama.cpp server.",
+            text="Recommended local vision stack for this app: Qwen3-VL first, then Qwen2.5-VL, MiniCPM-V, moondream for fastest passes, LLaVA as fallback. Works with either Ollama or a llama.cpp server.",
             wraplength=780,
             justify="left",
         ).grid(row=15, column=0, columnspan=3, sticky="w", pady=(10, 0))
@@ -116,27 +128,52 @@ class SettingsTab(ttk.Frame):
         self.ollama_models = ollama_models
         llamacpp_models = self.registry.list_llamacpp_models(self.llamacpp_url_var.get().strip())
         self.llamacpp_models = llamacpp_models
+        self.startable_llamacpp = available_startable_models(self.settings.models_root)
         directory_models = self.registry.list_directory_models(self.local_root_var.get())
 
+        # The llama.cpp dropdown shows the running server's model plus every model
+        # the app can launch on demand: ones it downloaded and ones already in
+        # llama.cpp's cache. Recognized models use their clean catalog name rather
+        # than the raw GGUF path llama-server reports for -m launches.
+        llamacpp_names: list[str] = []
+        for item in llamacpp_models:
+            spec = spec_for_model_name(item.name)
+            name = spec.display_name if spec is not None else item.name
+            if name not in llamacpp_names:
+                llamacpp_names.append(name)
+        for model in self.startable_llamacpp:
+            if model.display_name not in llamacpp_names:
+                llamacpp_names.append(model.display_name)
+
         self.ollama_combo["values"] = [item.name for item in ollama_models]
-        self.llamacpp_combo["values"] = [item.name for item in llamacpp_models]
+        self.llamacpp_combo["values"] = llamacpp_names
         self.local_combo["values"] = [item.name for item in directory_models]
 
         if self.ollama_model_var.get() not in self.ollama_combo["values"] and self.ollama_combo["values"]:
             recommended = self.registry.recommended_ollama_model(ollama_models)
             self.ollama_model_var.set(recommended.name if recommended is not None else self.ollama_combo["values"][0])
-        if self.llamacpp_model_var.get() not in self.llamacpp_combo["values"] and self.llamacpp_combo["values"]:
-            recommended = self.registry.recommended_llamacpp_model(llamacpp_models)
-            self.llamacpp_model_var.set(recommended.name if recommended is not None else self.llamacpp_combo["values"][0])
+        if self.llamacpp_model_var.get() not in llamacpp_names and llamacpp_names:
+            self.llamacpp_model_var.set(llamacpp_names[0])
         if self.local_model_var.get() not in self.local_combo["values"] and self.local_combo["values"]:
             self.local_model_var.set(self.local_combo["values"][0])
 
+        self._update_server_button_state()
         self._update_ollama_recommendation()
         self._update_llamacpp_recommendation()
+        startable = len(self.startable_llamacpp)
         self.status_var.set(
-            f"Discovered {len(ollama_models)} Ollama, {len(llamacpp_models)} llama.cpp, and {len(directory_models)} directory models."
+            f"Discovered {len(ollama_models)} Ollama, {len(llamacpp_models)} llama.cpp running "
+            f"({startable} available to start), and {len(directory_models)} directory models."
         )
         self._emit_change()
+
+    def _update_server_button_state(self) -> None:
+        # Offer Start Server only when a model can be launched and none is running here.
+        can_start = bool(self.startable_llamacpp) and not self.llamacpp_models
+        try:
+            self.start_server_btn.state(["!disabled"] if can_start else ["disabled"])
+        except tk.TclError:
+            pass
 
     def _update_ollama_recommendation(self) -> None:
         self.ollama_recommendation_var.set(
@@ -154,7 +191,17 @@ class SettingsTab(ttk.Frame):
             self.registry.recommended_llamacpp_model(self.llamacpp_models),
         )
         if not self.llamacpp_models:
-            text = "No llama.cpp server detected. Start llama-server with a vision model, then refresh."
+            if self.startable_llamacpp:
+                names = ", ".join(model.display_name for model in self.startable_llamacpp)
+                text = (
+                    f"No server running. Ready to start (downloaded or in your llama.cpp cache): {names}. "
+                    "Pick one and click Start Server — the app launches llama-server for you."
+                )
+            else:
+                text = (
+                    "No llama.cpp server running and no model available yet. "
+                    "Download one via first-run setup or `python shapearator.py --setup`, then Start Server."
+                )
         self.llamacpp_recommendation_var.set(text)
 
     @staticmethod
@@ -185,13 +232,81 @@ class SettingsTab(ttk.Frame):
 
     def _use_recommended_llamacpp(self) -> None:
         recommended = self.registry.recommended_llamacpp_model(self.llamacpp_models)
-        if recommended is None:
+        if recommended is not None:
+            self.llamacpp_model_var.set(recommended.name)
+        elif self.startable_llamacpp:
+            # No server running; pre-select the best startable model to launch.
+            self.llamacpp_model_var.set(self.startable_llamacpp[0].display_name)
+        else:
+            self.status_var.set(
+                "No llama.cpp model available. Download one via first-run setup or `python shapearator.py --setup`."
+            )
             return
-        self.llamacpp_model_var.set(recommended.name)
         self.semantic_var.set(True)
         self.provider_var.set("llamacpp")
         self._update_llamacpp_recommendation()
         self._emit_change()
+
+    def _selected_startable(self) -> StartableLlamaModel | None:
+        """Return the StartableLlamaModel matching the dropdown, or the best one."""
+        selected = self.llamacpp_model_var.get().strip()
+        for model in self.startable_llamacpp:
+            if model.display_name == selected:
+                return model
+        return self.startable_llamacpp[0] if self.startable_llamacpp else None
+
+    def _start_llamacpp_server(self) -> None:
+        model = self._selected_startable()
+        if model is None:
+            self.status_var.set(
+                "No llama.cpp model to start. Use first-run setup or `python shapearator.py --setup`."
+            )
+            return
+        url = self.llamacpp_url_var.get().strip()
+        self.start_server_btn.state(["disabled"])
+        source_hint = "from cache" if model.source == "cache" else "from download"
+        self.status_var.set(f"Starting llama-server with {model.display_name} ({source_hint})… first load can take a moment.")
+
+        def worker() -> None:
+            try:
+                if model.source == "cache" and model.hf_ref:
+                    self.server_manager.start_hf(model.hf_ref, url)
+                elif model.files is not None:
+                    self.server_manager.start(model.files, url)
+                else:
+                    raise RuntimeError("Model has no launch source.")
+                self._server_queue.put(("ok", model.display_name))
+            except Exception as exc:  # surfaced to the UI thread
+                self._server_queue.put(("error", str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.after(250, self._poll_server_start)
+
+    def _poll_server_start(self) -> None:
+        try:
+            kind, payload = self._server_queue.get_nowait()
+        except queue.Empty:
+            self.after(250, self._poll_server_start)
+            return
+        try:
+            self.start_server_btn.state(["!disabled"])
+        except tk.TclError:
+            pass
+        if kind == "ok":
+            self.provider_var.set("llamacpp")
+            self.semantic_var.set(True)
+            self.llamacpp_model_var.set(payload)
+            self.refresh_models()
+            self.status_var.set(f"llama.cpp server running with {payload}.")
+        else:
+            self.status_var.set(f"Could not start llama-server: {payload}")
+
+    def shutdown(self) -> None:
+        """Stop any app-launched llama-server. Call on app close."""
+        try:
+            self.server_manager.stop()
+        except Exception:
+            pass
 
     def get_settings(self) -> AppSettings:
         self.settings.provider = self.provider_var.get()

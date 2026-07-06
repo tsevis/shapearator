@@ -30,7 +30,16 @@ class MainWindow:
         self.create_notebook()
         self.create_tabs()
         self.apply_theme(self._theme_mode)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(400, self._maybe_run_first_run)
+
+    def _on_close(self) -> None:
+        """Stop any app-launched llama-server before exiting."""
+        try:
+            self.settings_tab.shutdown()
+        except Exception:
+            pass
+        self.root.destroy()
 
     def _maybe_run_first_run(self) -> None:
         """Offer the model-download dialog the first time the app runs with no local model."""

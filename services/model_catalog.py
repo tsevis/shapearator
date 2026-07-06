@@ -46,10 +46,21 @@ class VisionModelSpec:
 # callers can sort a mixed set of discovered models deterministically.
 CATALOG: tuple[VisionModelSpec, ...] = (
     VisionModelSpec(
+        key="qwen3-vl",
+        display_name="Qwen3-VL",
+        priority=1,
+        recommendation="Newest and strongest vision model for this app: excellent icon understanding with clean short labels.",
+        ollama_tag="",  # use the llama.cpp GGUF build; not a standard Ollama vision tag
+        approx_ollama_gb=0.0,
+        hf_repo="Qwen/Qwen3-VL-8B-Instruct-GGUF",
+        gguf_quant="Q4_K_M",
+        approx_llamacpp_gb=6.5,
+    ),
+    VisionModelSpec(
         key="qwen2.5-vl",
         display_name="Qwen2.5-VL 3B",
-        priority=1,
-        recommendation="Best overall for this app: strongest balance of icon understanding, stable short labels, and local speed.",
+        priority=2,
+        recommendation="Lightweight, reliable balance of icon understanding, stable short labels, and local speed.",
         ollama_tag="qwen2.5vl:3b",
         approx_ollama_gb=3.2,
         hf_repo="ggml-org/Qwen2.5-VL-3B-Instruct-GGUF",
@@ -59,8 +70,8 @@ CATALOG: tuple[VisionModelSpec, ...] = (
     ),
     VisionModelSpec(
         key="minicpm-v",
-        display_name="MiniCPM-V 2.6",
-        priority=2,
+        display_name="MiniCPM-V",
+        priority=3,
         recommendation="Great backup when you want a second opinion on hand-drawn marks and ambiguous symbols.",
         ollama_tag="minicpm-v:latest",
         approx_ollama_gb=5.5,
@@ -71,7 +82,7 @@ CATALOG: tuple[VisionModelSpec, ...] = (
     VisionModelSpec(
         key="moondream",
         display_name="moondream2",
-        priority=3,
+        priority=4,
         recommendation="Fastest lightweight option for quick local naming passes.",
         ollama_tag="moondream:latest",
         approx_ollama_gb=1.7,
@@ -81,8 +92,8 @@ CATALOG: tuple[VisionModelSpec, ...] = (
     ),
     VisionModelSpec(
         key="llava",
-        display_name="LLaVA 1.6 (7B)",
-        priority=4,
+        display_name="LLaVA",
+        priority=5,
         recommendation="General fallback vision model when the preferred local icon models are unavailable.",
         ollama_tag="llava:7b",
         approx_ollama_gb=4.7,
@@ -93,7 +104,7 @@ CATALOG: tuple[VisionModelSpec, ...] = (
     VisionModelSpec(
         key="smolvlm-500m",
         display_name="SmolVLM 500M (ultra-light)",
-        priority=8,
+        priority=9,
         recommendation="Tiny footprint for constrained machines or a fast smoke test; lower accuracy on ambiguous marks.",
         ollama_tag="",  # not published as a first-class Ollama vision tag
         approx_ollama_gb=0.0,

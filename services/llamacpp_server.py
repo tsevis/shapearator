@@ -7,10 +7,10 @@ experience matches Ollama's "it just works".
 """
 from __future__ import annotations
 
+import atexit
 import shutil
 import subprocess
 import time
-from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
@@ -42,6 +42,8 @@ class LlamaCppServerManager:
 
     def __init__(self) -> None:
         self._process: subprocess.Popen | None = None
+        # Safety net: never leave an app-launched server orphaned on exit.
+        atexit.register(self.stop)
 
     @property
     def is_running(self) -> bool:
@@ -53,9 +55,44 @@ class LlamaCppServerManager:
         base_url: str,
         *,
         context_size: int = 4096,
-        wait_seconds: float = 90.0,
+        wait_seconds: float = 120.0,
     ) -> None:
-        """Launch llama-server for ``files`` and block until it is healthy."""
+        """Launch llama-server for locally downloaded weights + projector."""
+        self._launch(
+            ["-m", str(files.gguf_path), "--mmproj", str(files.mmproj_path)],
+            base_url,
+            context_size=context_size,
+            wait_seconds=wait_seconds,
+        )
+
+    def start_hf(
+        self,
+        hf_ref: str,
+        base_url: str,
+        *,
+        context_size: int = 4096,
+        wait_seconds: float = 300.0,
+    ) -> None:
+        """Launch llama-server for a Hugging Face ref (``repo:quant``).
+
+        Reuses llama.cpp's own cache; only downloads if the model is not present.
+        The longer default wait accommodates a first-time pull.
+        """
+        self._launch(
+            ["-hf", hf_ref],
+            base_url,
+            context_size=context_size,
+            wait_seconds=wait_seconds,
+        )
+
+    def _launch(
+        self,
+        model_args: list[str],
+        base_url: str,
+        *,
+        context_size: int,
+        wait_seconds: float,
+    ) -> None:
         if is_server_healthy(base_url):
             return  # something is already serving here; reuse it
         binary = find_llama_server_binary()
@@ -64,14 +101,7 @@ class LlamaCppServerManager:
         parsed = urlparse(base_url)
         host = parsed.hostname or "127.0.0.1"
         port = str(parsed.port or 8080)
-        command = [
-            binary,
-            "-m", str(files.gguf_path),
-            "--mmproj", str(files.mmproj_path),
-            "--host", host,
-            "--port", port,
-            "-c", str(context_size),
-        ]
+        command = [binary, *model_args, "--host", host, "--port", port, "-c", str(context_size)]
         self._process = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,

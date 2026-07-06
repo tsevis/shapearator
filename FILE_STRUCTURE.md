@@ -103,6 +103,7 @@ Model discovery, catalog, and downloads:
 - `model_catalog.py`: single source of truth for recommended vision models (Ollama tag + Hugging Face GGUF specs)
 - `model_registry.py`: local Ollama, llama.cpp, and directory model discovery
 - `model_bootstrap.py`: on-demand model downloads (Ollama `/api/pull` streaming + Hugging Face GGUF/mmproj with resume)
+- `llamacpp_models.py`: discovers startable llama.cpp vision models (app-downloaded + already in llama.cpp's `-hf` cache)
 - `first_run.py`: first-run detection and install orchestration shared by GUI and CLI
 
 Vision providers (semantic naming):

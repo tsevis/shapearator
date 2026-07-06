@@ -196,6 +196,18 @@ def is_llamacpp_model_present(models_root: str | None, spec: VisionModelSpec) ->
     return find_local_llamacpp_files(models_root, spec) is not None
 
 
+def list_downloaded_llamacpp(models_root: str | None) -> list[tuple[VisionModelSpec, "LlamaCppModelFiles"]]:
+    """Every recommended model that has been downloaded locally, best-first."""
+    from .model_catalog import CATALOG
+
+    found: list[tuple[VisionModelSpec, LlamaCppModelFiles]] = []
+    for spec in sorted(CATALOG, key=lambda s: s.priority):
+        files = find_local_llamacpp_files(models_root, spec)
+        if files is not None:
+            found.append((spec, files))
+    return found
+
+
 def download_llamacpp_model(
     spec: VisionModelSpec,
     models_root: str | None = None,

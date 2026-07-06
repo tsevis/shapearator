@@ -126,6 +126,12 @@ Everything stays local and offline after download. For llama.cpp, the app can al
 launch `llama-server` against the downloaded weights, so you never have to start it
 by hand.
 
+**Already have models?** If you use Ollama, its installed vision models appear
+automatically. If you use llama.cpp, any vision model already in your cache (from
+`llama-server -hf ...`) is detected via `llama-cli --cache-list` and shown in the
+Settings dropdown — pick one and click **Start Server** and the app launches it with
+`-hf`, reusing the cache with no re-download.
+
 ## Running the App
 
 ### GUI
@@ -233,10 +239,11 @@ Recommended vision-model families (usable with either backend; sizes approximate
 
 | Family | Ollama tag | Hugging Face GGUF repo | Notes |
 |---|---|---|---|
-| Qwen2.5-VL 3B | `qwen2.5vl:3b` | `ggml-org/Qwen2.5-VL-3B-Instruct-GGUF` | Best overall (default) |
-| MiniCPM-V 2.6 | `minicpm-v:latest` | `openbmb/MiniCPM-V-2_6-gguf` | Strong second opinion |
+| Qwen3-VL | — | `Qwen/Qwen3-VL-8B-Instruct-GGUF` | Newest / strongest (top pick) |
+| Qwen2.5-VL 3B | `qwen2.5vl:3b` | `ggml-org/Qwen2.5-VL-3B-Instruct-GGUF` | Light default download |
+| MiniCPM-V | `minicpm-v:latest` | `openbmb/MiniCPM-V-2_6-gguf` | Strong second opinion |
 | moondream2 | `moondream:latest` | `ggml-org/moondream2-20250414-GGUF` | Fastest lightweight |
-| LLaVA 1.6 (7B) | `llava:7b` | `ggml-org/llava-1.6-mistral-7b-gguf` | General fallback |
+| LLaVA | `llava:7b` | `ggml-org/llava-1.6-mistral-7b-gguf` | General fallback |
 | SmolVLM 500M | — | `ggml-org/SmolVLM-500M-Instruct-GGUF` | Ultra-light / smoke test |
 
 For llama.cpp, each model is its GGUF weights plus the matching `--mmproj` vision
