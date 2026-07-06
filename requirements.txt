@@ -1,0 +1,8 @@
+# Shapearator Python dependencies.
+# External tools still required on PATH: inkscape, potrace.
+# Optional local model backends: Ollama (daemon) and/or llama.cpp (llama-server).
+opencv-python>=4.8
+numpy>=1.24
+Pillow>=10.0
+requests>=2.31
+huggingface_hub>=0.24

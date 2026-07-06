@@ -1,0 +1,25 @@
+{
+  "appearance": "light",
+  "provider": "geometry",
+  "ollama_url": "http://127.0.0.1:11434",
+  "ollama_model": "qwen2.5vl:3b",
+  "llamacpp_url": "http://127.0.0.1:8080",
+  "llamacpp_model": "",
+  "models_root": "",
+  "local_model_root": "",
+  "local_model_name": "",
+  "semantic_naming": false,
+  "default_formats": [
+    "png",
+    "svg"
+  ],
+  "output_width": 512,
+  "output_height": 512,
+  "canvas_mode": "uniform_to_largest",
+  "bitmap_export_mode": "transparent_preserve_interior",
+  "padding": 12,
+  "min_area": 200,
+  "merge_gap": 13,
+  "last_input_path": "",
+  "last_output_dir": ""
+}

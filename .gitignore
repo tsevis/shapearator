@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__/
+*.pyc
+logs/
+_work_png/
+_work_svg/
+models/
+config/settings.json
+config/setup_state.json
