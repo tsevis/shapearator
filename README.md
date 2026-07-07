@@ -45,6 +45,13 @@ Both are guarded to local endpoints only, both get automatic retry on cold start
 and both are checked by a pre-run **preflight** that reports clearly if a server is
 down, a model is missing, or a loaded model is not vision-capable.
 
+**Which should I pick?** If you want the simplest setup, choose **Ollama**: run the
+daemon once, `ollama pull` a vision model, and it stays available in the background.
+If you want to run a specific GGUF (including newer models like Qwen3-VL that have no
+standard Ollama vision tag) or prefer a single self-contained weights file, choose
+**llama.cpp**: Shapearator can download the GGUF + `mmproj` and launch `llama-server`
+for you. Have both installed? Switch between them freely at any time.
+
 ## Interfaces
 
 - **GUI desktop app** — best for visual workflows, previews, and settings
@@ -239,12 +246,12 @@ Recommended vision-model families (usable with either backend; sizes approximate
 
 | Family | Ollama tag | Hugging Face GGUF repo | Notes |
 |---|---|---|---|
-| Qwen3-VL | — | `Qwen/Qwen3-VL-8B-Instruct-GGUF` | Newest / strongest (top pick) |
+| Qwen3-VL | — (llama.cpp only) | `Qwen/Qwen3-VL-8B-Instruct-GGUF` | Newest / strongest (top pick) |
 | Qwen2.5-VL 3B | `qwen2.5vl:3b` | `ggml-org/Qwen2.5-VL-3B-Instruct-GGUF` | Light default download |
 | MiniCPM-V | `minicpm-v:latest` | `openbmb/MiniCPM-V-2_6-gguf` | Strong second opinion |
 | moondream2 | `moondream:latest` | `ggml-org/moondream2-20250414-GGUF` | Fastest lightweight |
 | LLaVA | `llava:7b` | `ggml-org/llava-1.6-mistral-7b-gguf` | General fallback |
-| SmolVLM 500M | — | `ggml-org/SmolVLM-500M-Instruct-GGUF` | Ultra-light / smoke test |
+| SmolVLM 500M | — (llama.cpp only) | `ggml-org/SmolVLM-500M-Instruct-GGUF` | Ultra-light / smoke test |
 
 For llama.cpp, each model is its GGUF weights plus the matching `--mmproj` vision
 projector; the first-run installer downloads both.
