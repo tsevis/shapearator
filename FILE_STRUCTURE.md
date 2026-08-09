@@ -91,12 +91,17 @@ Shared backend logic used by both the GUI and CLI.
 
 Configuration and paths:
 
-- `config_store.py`: `AppSettings` schema plus JSON load/save support
+- `settings_schema.py`: `AppSettings` dataclass, the allowed value catalog (providers, canvas modes, formats), and schema-aware coercion — the single source of truth the CLI's `argparse` choices are built from
+- `config_store.py`: JSON load/save on top of that schema; unknown keys and invalid values degrade to defaults per field instead of raising
 - `paths.py`: repo-relative locations (config dir, models dir, setup marker) — no absolute paths
 
 Extraction engine:
 
-- `extractor.py`: core extraction pipeline, export pipeline, metadata generation, raster and vector handling
+- `extractor.py`: pipeline orchestration — `IconExtractor`, semantic naming, metadata generation
+- `extraction_types.py`: `ExtractedIcon`, `ExtractionResult`, `ExtractionProgress` — the data passed to the GUI and CLI
+- `geometry.py`: `Box`, foreground masks, icon detection, reading-order sorting, uniform scale
+- `raster_ops.py`: canvas composition, transparency (interior holes preserved), palette and monochrome analysis
+- `svg_ops.py`: SVG parsing, fragment building, canvas normalization, metadata injection, and the Inkscape/potrace subprocess calls
 
 Model discovery, catalog, and downloads:
 
@@ -123,6 +128,10 @@ This folder is source code and acts as the application core.
 
 - `test_provider_migration.py`: shared vision helpers, factory selection, both clients, CLI validation
 - `test_bootstrap_and_setup.py`: model catalog, retry/backoff, preflight, downloader, first-run flow, and cross-provider parity
+- `test_settings_schema.py`: per-field coercion, unknown/malformed config recovery, and CLI/schema choice-list parity
+- `test_geometry.py`: box arithmetic, masks, blob detection, reading-order sorting
+- `test_raster_ops.py`: canvas composition and clipping, interior-hole transparency, palette and monochrome analysis
+- `test_svg_ops.py`: viewBox parsing, id assignment, fragment building, canvas normalization, metadata injection
 
 Run with `pytest -q` from the repository root.
 
@@ -203,9 +212,10 @@ If you are changing application behavior, the most likely files to update are:
 - `gui/workspace_tab.py` — extraction UI behavior
 - `gui/settings_tab.py` — provider/settings UI behavior
 - `gui/setup_dialog.py` — first-run download UI
-- `services/extractor.py` — core extraction/export logic
+- `services/extractor.py` — pipeline orchestration and metadata
+- `services/geometry.py` / `services/raster_ops.py` / `services/svg_ops.py` — detection, pixel work, and SVG handling
 - `services/vision.py` — provider contract, preflight, retries
 - `services/model_catalog.py` — recommended models and download specs
-- `services/config_store.py` — persisted settings shape
+- `services/settings_schema.py` — settings shape, allowed values, and validation
 
 If you are updating public project docs, keep `README.md`, `MANUAL.md`, and `FILE_STRUCTURE.md` aligned.

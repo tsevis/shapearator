@@ -9,7 +9,8 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageOps, ImageTk
 
 from services.config_store import AppSettings
-from services.extractor import ExtractionProgress, ExtractionResult, IconExtractor, export_svg_to_png
+from services.extractor import ExtractionProgress, ExtractionResult, IconExtractor
+from services.svg_ops import export_svg_to_png
 from services.vision import is_local_url
 
 
@@ -340,9 +341,11 @@ class WorkspaceTab(ttk.Frame):
                     progress_callback=self._queue_progress_update,
                 )
             except Exception as exc:
-                self.after(0, lambda: self._handle_error(exc))
+                # Bind now: `exc` is unbound once the except block exits, so a
+                # bare closure would raise NameError instead of showing the error.
+                self.after(0, lambda error=exc: self._handle_error(error))
                 return
-            self.after(0, lambda: self._handle_result(result))
+            self.after(0, lambda value=result: self._handle_result(value))
 
         threading.Thread(target=worker, daemon=True).start()
 
