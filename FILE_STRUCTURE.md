@@ -1,235 +1,168 @@
 # File Structure
 
-This document explains the main repository layout for Shapearator and distinguishes source code from generated or sample assets.
+What lives where, and which files are source rather than generated output.
+`README.md` covers behaviour; this document covers layout.
 
-## Top Level
+## Top level
 
 ```text
 shapearator/
-  config/            # persisted settings + first-run marker (runtime state)
-  docs/              # sample sheets, exports, screenshots (mostly not source)
-  documents/         # reserved working area
-  gui/               # desktop interface (tkinter/ttk)
-  logs/              # generated run logs
-  models/            # downloaded llama.cpp GGUF weights (gitignored)
-  services/          # shared engine, model backends, settings, setup logic
+  shapearator.py     # CLI entry point
+  main.py            # GUI entry point
+  run.sh             # GUI launcher; installs dependencies on first run
+  services/          # the engine
+  gui/               # tkinter/ttk desktop interface
   tests/             # pytest suite
-  main.py            # GUI entrypoint
-  shapearator.py     # CLI entrypoint
-  run.sh             # GUI launcher (installs deps on first run)
-  requirements.txt   # Python dependencies
-  README.md
-  MANUAL.md
-  FILE_STRUCTURE.md
-  LICENSE
+  config/            # persisted settings and the first-run marker (runtime state)
+  models/            # downloaded llama.cpp GGUF weights (gitignored)
+  docs/              # sample sheets and screenshots
+  logs/              # generated run logs
+  requirements.txt
+  README.md  MANUAL.md  FILE_STRUCTURE.md  LICENSE
 ```
 
-## Core Application Code
-
-### `main.py`
-
-Primary GUI entrypoint.
-
-Responsibilities:
-
-- initializes logging
-- creates the Tk root window
-- starts the main desktop app shell (which triggers first-run model setup when needed)
+## Entry points
 
 ### `shapearator.py`
 
-Primary CLI entrypoint.
+The CLI. Parses arguments, resolves settings (defaults, then config with
+`--use-config`, then a detection preset, then explicit flags), validates the
+result, runs the extractor, and reports progress and completion. Also hosts
+`--setup` / `--setup-all` for headless model downloads.
 
-Responsibilities:
+### `main.py`
 
-- parses CLI arguments
-- runs the headless model installer for `--setup` / `--setup-all`
-- optionally loads `config/settings.json`
-- applies detection presets and explicit overrides
-- validates provider and export settings (local-only endpoints)
-- prints a provider preflight readout before a naming run
-- runs extraction through the shared engine
-- optionally saves resolved config
+The GUI. Initializes logging, creates the Tk root, and starts the desktop
+shell, which triggers first-run model setup when needed.
 
 ### `run.sh`
 
-Convenience launcher for the GUI.
+Launches the GUI, installing the Python dependencies the first time they cannot
+be imported.
 
-Responsibilities:
+## The engine — `services/`
 
-- resolves the repository root
-- selects a Python interpreter (`PYTHON_BIN` override, project `.venv`, known pyenv, or `python3`)
-- installs `requirements.txt` on first run if dependencies are missing
-- starts `main.py`
+Shared by the GUI, the CLI, and [MacShapearator](https://github.com/tsevis/MacShapearator).
+No module here imports from `gui/`.
 
-### `requirements.txt`
+### Settings
 
-Python dependency manifest: `Pillow`, `opencv-python`, `numpy`, `requests`, `huggingface_hub`.
-External tools (`inkscape`, `potrace`) and model backends (Ollama, llama.cpp) are installed separately.
+| Module | Role |
+| --- | --- |
+| `settings_schema.py` | the `AppSettings` dataclass, the allowed-value catalog, and per-field coercion — the single source of truth the CLI's argparse choices are built from |
+| `config_store.py` | JSON load/save on top of that schema; unknown keys and invalid values degrade per field instead of raising |
+| `paths.py` | repo-relative locations (config dir, models dir, setup marker) |
 
-## GUI Layer
+### Extraction
 
-### `gui/`
+| Module | Role |
+| --- | --- |
+| `extractor.py` | orchestration: `IconExtractor`, the run pipeline, metadata generation |
+| `extraction_types.py` | `ExtractedIcon`, `NamingSummary`, `ExtractionResult`, `ExtractionProgress` — the data handed to callers |
+| `geometry.py` | `Box`, foreground masks, blob detection, reading-order sorting, uniform scale |
+| `raster_ops.py` | canvas composition, transparency (enclosed holes preserved), palette and monochrome analysis |
+| `svg_ops.py` | SVG parsing, icon-level discovery, transitive definition resolution, fragment building, canvas normalization, and the Inkscape/potrace calls |
+| `export_commit.py` | staged exports and the run manifest: publishes a run only once every step succeeds, and replaces only the files the manifest lists |
+| `metadata_paths.py` | reduces paths and error text bound for exported files to a portable, non-identifying form |
 
-Desktop application interface built with `tkinter` and `ttk`.
+### Naming and models
 
-Important files:
+| Module | Role |
+| --- | --- |
+| `semantic_naming.py` | the pre-export backend gate, per-icon labeling and renaming with rollback, and the naming summary |
+| `vision.py` | shared prompt and response parsing, the local-URL guard, retry/backoff, `preflight`, and the provider client factory |
+| `ollama_client.py` | local-only Ollama client (native `/api/generate`) |
+| `llamacpp_client.py` | local-only llama.cpp client (OpenAI-compatible `/v1/chat/completions`) |
+| `llamacpp_server.py` | optional launcher for a local `llama-server` |
+| `llamacpp_models.py` | discovers startable llama.cpp vision models, downloaded or already in llama.cpp's cache |
+| `model_catalog.py` | the recommended vision models: Ollama tags and Hugging Face GGUF specs |
+| `model_registry.py` | discovery across Ollama, llama.cpp and a plain directory |
+| `model_bootstrap.py` | downloads models with progress and resume |
+| `first_run.py` | first-run detection and install orchestration, shared by GUI and CLI |
 
-- `main_window.py`: top-level app shell, notebook tabs, theme management, first-run trigger
-- `workspace_tab.py`: extraction workflow, previews, results list, run controls
-- `settings_tab.py`: provider selection, Ollama settings, llama.cpp settings, directory model settings
-- `setup_dialog.py`: first-run model-download dialog (backend detection, per-model checkboxes, threaded progress)
-- `theme_utils.py`: helper utilities for themed toplevel windows
+## GUI — `gui/`
 
-This folder is source code.
+| Module | Role |
+| --- | --- |
+| `main_window.py` | app shell, tabs, appearance toggle, settings persistence |
+| `workspace_tab.py` | source and output pickers, detection and export controls, run, preview, results |
+| `settings_tab.py` | provider, endpoints, models, and runtime status |
+| `setup_dialog.py` | first-run model download UI |
+| `theme_utils.py` | light/dark helpers |
 
-## Shared Services
+## Tests — `tests/`
 
-### `services/`
+Fully offline: network calls and subprocesses are mocked, so neither a model
+backend nor Inkscape is required. Run with `pytest -q`.
 
-Shared backend logic used by both the GUI and CLI.
+| File | Covers |
+| --- | --- |
+| `test_settings_schema.py` | per-field coercion, unknown/malformed config recovery, CLI/schema parity |
+| `test_geometry.py` | box arithmetic, masks, blob detection, reading order |
+| `test_raster_ops.py` | canvas composition and clipping, interior-hole transparency, palette analysis |
+| `test_svg_ops.py` | viewBox parsing, id assignment, fragment building, normalization, metadata injection |
+| `test_svg_grouping.py` | icon-level discovery, grouped vs loose artwork, ancestor transforms |
+| `test_svg_definitions.py` | reference scanning, transitive definition resolution, stylesheet retention |
+| `test_semantic_naming.py` | preflight enforcement and downgrade, per-icon status, rename rollback, truthful metadata |
+| `test_svg_only_naming.py` | naming SVG-only exports via a temporary preview |
+| `test_export_commit.py` | stale-output replacement, preservation of untracked files, manifest contents, rollback |
+| `test_metadata_privacy.py` | exported metadata discloses no local filesystem paths |
+| `test_provider_migration.py` | shared vision helpers, factory selection, both clients, CLI validation |
+| `test_bootstrap_and_setup.py` | catalog, retry/backoff, preflight, downloader, first-run flow |
 
-Configuration and paths:
+## Runtime state
 
-- `settings_schema.py`: `AppSettings` dataclass, the allowed value catalog (providers, canvas modes, formats), and schema-aware coercion — the single source of truth the CLI's `argparse` choices are built from
-- `config_store.py`: JSON load/save on top of that schema; unknown keys and invalid values degrade to defaults per field instead of raising
-- `paths.py`: repo-relative locations (config dir, models dir, setup marker) — no absolute paths
+| Path | Contents |
+| --- | --- |
+| `config/settings.json` | persisted settings (gitignored) |
+| `config/setup_state.json` | first-run completion marker (gitignored) |
+| `models/` | downloaded GGUF weights and `mmproj` projectors (gitignored) |
+| `logs/` | run logs (gitignored) |
 
-Extraction engine:
+## Export output
 
-- `extractor.py`: pipeline orchestration — `IconExtractor`, metadata generation
-- `semantic_naming.py`: the pre-export backend gate (`check_backend_ready`), per-icon labeling (rendering a throwaway preview when an icon has no bitmap) and renaming with rollback, and the naming summary
-- `metadata_paths.py`: reduces paths and error text bound for exported files to a portable, non-identifying form
-- `export_commit.py`: staged exports and the run manifest — publishes a run only once every step succeeds, and replaces only the files the manifest lists
-- `extraction_types.py`: `ExtractedIcon`, `NamingSummary`, `ExtractionResult`, `ExtractionProgress` — the data passed to the GUI and CLI
-- `geometry.py`: `Box`, foreground masks, icon detection, reading-order sorting, uniform scale
-- `raster_ops.py`: canvas composition, transparency (interior holes preserved), palette and monochrome analysis
-- `svg_ops.py`: SVG parsing, fragment building (including transitive resolution of referenced `<defs>` and stylesheets), canvas normalization, metadata injection, and the Inkscape/potrace subprocess calls
-
-Model discovery, catalog, and downloads:
-
-- `model_catalog.py`: single source of truth for recommended vision models (Ollama tag + Hugging Face GGUF specs)
-- `model_registry.py`: local Ollama, llama.cpp, and directory model discovery
-- `model_bootstrap.py`: on-demand model downloads (Ollama `/api/pull` streaming + Hugging Face GGUF/mmproj with resume)
-- `llamacpp_models.py`: discovers startable llama.cpp vision models (app-downloaded + already in llama.cpp's `-hf` cache)
-- `first_run.py`: first-run detection and install orchestration shared by GUI and CLI
-
-Vision providers (semantic naming):
-
-- `vision.py`: shared helpers (prompt, response parsing, local-URL guard), retry/backoff, preflight capability check, and the provider client factory
-- `ollama_client.py`: local-only Ollama vision client (native `/api/generate`)
-- `llamacpp_client.py`: local-only llama.cpp vision client (OpenAI-compatible `/v1/chat/completions`)
-- `llamacpp_server.py`: optional launcher for a local `llama-server` against downloaded GGUF weights
-
-This folder is source code and acts as the application core.
-
-## Tests
-
-### `tests/`
-
-`pytest` suite that runs fully offline (network and servers are mocked).
-
-- `test_provider_migration.py`: shared vision helpers, factory selection, both clients, CLI validation
-- `test_bootstrap_and_setup.py`: model catalog, retry/backoff, preflight, downloader, first-run flow, and cross-provider parity
-- `test_settings_schema.py`: per-field coercion, unknown/malformed config recovery, and CLI/schema choice-list parity
-- `test_geometry.py`: box arithmetic, masks, blob detection, reading-order sorting
-- `test_raster_ops.py`: canvas composition and clipping, interior-hole transparency, palette and monochrome analysis
-- `test_svg_ops.py`: viewBox parsing, id assignment, fragment building, canvas normalization, metadata injection
-- `test_semantic_naming.py`: preflight enforcement and downgrade, per-icon naming status, rename rollback, metadata truthfulness
-- `test_svg_definitions.py`: reference scanning, transitive definition resolution, stylesheet retention, and survival through normalization
-- `test_export_commit.py`: stale-output replacement, preservation of untracked files, manifest contents, and rollback on a failed run or commit
-- `test_svg_only_naming.py`: semantic naming for SVG-only exports, including preview rendering, cleanup, and per-icon failure reporting
-- `test_metadata_privacy.py`: exported metadata, embedded SVG metadata, and the manifest disclose no local filesystem paths
-
-Run with `pytest -q` from the repository root.
-
-## Configuration and Runtime State
-
-### `config/`
-
-Stores persisted app state.
-
-- `settings.json`: saved defaults (provider, model URLs/names, formats, canvas settings, detection values, last-used paths)
-- `setup_state.json`: first-run completion marker (gitignored)
-
-This folder contains runtime configuration, not source logic.
-
-### `models/`
-
-Downloaded llama.cpp GGUF weights and `mmproj` projectors, organized as
-`models/llamacpp/<model-key>/`. Created by the first-run installer and **gitignored**.
-Ollama models are managed by Ollama itself and do not live here.
-
-### `logs/`
-
-Runtime log output created by the GUI entrypoint (`shapearator_YYYYMMDD_HHMMSS.log`). Generated output.
-
-## Documentation and Asset Folders
-
-### `docs/`
-
-Mixed working directory containing screenshots, source art, test sheets, and many generated example outputs:
-
-- sample raster and vector icon sheets
-- exported `png/`, `jpg/`, `tiff/`, `svg/` asset folders and per-icon `metadata/`
-- screenshots such as `GUI.png` and the `docs/readme/` images used by `README.md`
-- working/test collections (e.g. `SVG TEST`, `COLORS`, `TestMac`, `color test`)
-
-Much of `docs/` is sample content, experiments, or generated extraction output — not the main source-code area.
-
-### `documents/`
-
-Reserved documentation working area; not part of the current runtime flow.
-
-## Export Output Structure
-
-A chosen output directory contains only the selected export formats plus metadata:
+A chosen output directory holds only the selected formats plus metadata:
 
 ```text
 output-dir/
-  png/                          # bitmap PNG exports
-  jpg/                          # bitmap JPG exports
-  tiff/                         # bitmap TIFF exports
-  svg/                          # vector-native or wrapped/traced SVG exports
-  metadata/                     # per-icon JSON metadata files
-  .shapearator-manifest.json    # what the last run wrote; the only files a later run replaces
+  png/  jpg/  tiff/  svg/
+  metadata/                       # per-icon JSON
+  .shapearator-manifest.json      # what the last run wrote; the only files a later run replaces
 ```
 
-A run is built inside a `.shapearator-staging/` directory in the output folder and
-moved into place only once every step succeeds, so a failure leaves the previous
-export intact. Intermediate `_work_png/` and `_work_svg/` folders live in staging
-and are discarded with it — they never reach the output directory.
+A run is built inside `.shapearator-staging/` in the output folder and moved
+into place only once every step succeeds, so a failure leaves the previous
+export intact. Intermediate `_work_png/` and `_work_svg/` folders live in
+staging and are discarded with it — they never reach the output directory.
 
-Only the directories above are ever written or removed. Files the user places in
-the output folder are not tracked by the manifest and are never deleted.
+Only the directories above are ever written or removed. Files you place in the
+output folder are not tracked by the manifest and are never deleted.
 
-## Source vs Generated Content
+## Source vs generated
 
-Source code or maintained docs:
+**Source, maintained by hand:** `shapearator.py`, `main.py`, `run.sh`,
+`services/`, `gui/`, `tests/`, `requirements.txt`, and the markdown documents.
 
-- `main.py`, `shapearator.py`, `run.sh`, `requirements.txt`
-- `gui/`, `services/`, `tests/`
-- `README.md`, `MANUAL.md`, `FILE_STRUCTURE.md`, `LICENSE`
+**Sample assets:** `docs/base.png`, `docs/base.svg`, `docs/base.ai`, and
+`docs/readme/` screenshots.
 
-Runtime state, generated content, or working assets:
+**Generated, safe to delete:** `config/settings.json`, `config/setup_state.json`,
+`models/`, `logs/`, `__pycache__/`, `.pytest_cache/`, and any export folder.
 
-- `config/settings.json`, `config/setup_state.json`
-- `logs/`, `models/`
-- most of `docs/`
-- export folders produced by extraction runs
+## Where to make a change
 
-## Maintenance Guidance
+| To change | Edit |
+| --- | --- |
+| CLI behaviour or flags | `shapearator.py` |
+| extraction pipeline | `services/extractor.py` |
+| how icons are found in an SVG | `services/svg_ops.py` |
+| detection on raster sheets | `services/geometry.py` |
+| how a run replaces a previous export | `services/export_commit.py` |
+| naming behaviour or preflight | `services/semantic_naming.py`, `services/vision.py` |
+| recommended models or downloads | `services/model_catalog.py`, `services/model_bootstrap.py` |
+| the settings shape or its validation | `services/settings_schema.py` |
+| extraction UI | `gui/workspace_tab.py` |
+| provider/settings UI | `gui/settings_tab.py` |
 
-If you are changing application behavior, the most likely files to update are:
-
-- `shapearator.py` — CLI behavior and `--setup` flow
-- `gui/workspace_tab.py` — extraction UI behavior
-- `gui/settings_tab.py` — provider/settings UI behavior
-- `gui/setup_dialog.py` — first-run download UI
-- `services/extractor.py` — pipeline orchestration and metadata
-- `services/geometry.py` / `services/raster_ops.py` / `services/svg_ops.py` — detection, pixel work, and SVG handling
-- `services/vision.py` — provider contract, preflight, retries
-- `services/model_catalog.py` — recommended models and download specs
-- `services/settings_schema.py` — settings shape, allowed values, and validation
-
-If you are updating public project docs, keep `README.md`, `MANUAL.md`, and `FILE_STRUCTURE.md` aligned.
+Keep `README.md`, `MANUAL.md` and this file aligned when public behaviour
+changes.
