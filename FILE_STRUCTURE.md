@@ -102,7 +102,7 @@ Extraction engine:
 - `extraction_types.py`: `ExtractedIcon`, `NamingSummary`, `ExtractionResult`, `ExtractionProgress` — the data passed to the GUI and CLI
 - `geometry.py`: `Box`, foreground masks, icon detection, reading-order sorting, uniform scale
 - `raster_ops.py`: canvas composition, transparency (interior holes preserved), palette and monochrome analysis
-- `svg_ops.py`: SVG parsing, fragment building, canvas normalization, metadata injection, and the Inkscape/potrace subprocess calls
+- `svg_ops.py`: SVG parsing, fragment building (including transitive resolution of referenced `<defs>` and stylesheets), canvas normalization, metadata injection, and the Inkscape/potrace subprocess calls
 
 Model discovery, catalog, and downloads:
 
@@ -134,6 +134,7 @@ This folder is source code and acts as the application core.
 - `test_raster_ops.py`: canvas composition and clipping, interior-hole transparency, palette and monochrome analysis
 - `test_svg_ops.py`: viewBox parsing, id assignment, fragment building, canvas normalization, metadata injection
 - `test_semantic_naming.py`: preflight enforcement and downgrade, per-icon naming status, rename rollback, metadata truthfulness
+- `test_svg_definitions.py`: reference scanning, transitive definition resolution, stylesheet retention, and survival through normalization
 
 Run with `pytest -q` from the repository root.
 

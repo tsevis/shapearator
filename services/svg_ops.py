@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import math
+import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -20,7 +21,16 @@ from PIL import Image
 from .geometry import Box
 
 SVG_NS = "http://www.w3.org/2000/svg"
+XLINK_NS = "http://www.w3.org/1999/xlink"
 ET.register_namespace("", SVG_NS)
+ET.register_namespace("xlink", XLINK_NS)
+
+# fill="url(#grad)", clip-path="url('#clip')", style="filter:url(#f)" -- one
+# pattern covers every paint/clip/mask/marker attribute without listing them.
+_URL_REFERENCE = re.compile(r"url\(\s*['\"]?#([^)'\"\s]+)")
+# A bare "#name" is only a reference in an href, never in a paint attribute --
+# otherwise fill="#ff0000" would read as a reference to an element "ff0000".
+_HREF_ATTRIBUTES = frozenset({"href", f"{{{XLINK_NS}}}href"})
 
 
 def require_binary(name: str) -> str:
@@ -121,12 +131,79 @@ def svg_box_from_raster_box(
     return Box(int(math.floor(x)), int(math.floor(y)), max(1, int(math.ceil(w))), max(1, int(math.ceil(h))))
 
 
+# --- definitions ----------------------------------------------------------
+
+def collect_referenced_ids(elements: list[ET.Element]) -> set[str]:
+    """Return every document id referenced by ``elements`` or their children.
+
+    Scanning attribute *values* rather than a list of known attribute names
+    means paint servers, clip paths, masks, filters, markers, and `<use>`
+    targets are all caught, including inside a ``style`` attribute.
+    """
+    found: set[str] = set()
+    for element in elements:
+        for node in element.iter():
+            for name, value in node.attrib.items():
+                found.update(_URL_REFERENCE.findall(value))
+                if name in _HREF_ATTRIBUTES and value.strip().startswith("#"):
+                    found.add(value.strip()[1:])
+            if _is_tag(node, "style") and node.text:
+                found.update(_URL_REFERENCE.findall(node.text))
+    return found
+
+
+def collect_style_elements(root: ET.Element) -> list[ET.Element]:
+    """Return every <style> element in the document, in document order.
+
+    Stylesheets are copied wholesale: resolving which rules apply would mean
+    implementing the CSS cascade, and dropping a rule silently restyles the
+    icon. A few unused rules cost bytes; a missing one costs correctness.
+    """
+    return [node for node in root.iter() if _is_tag(node, "style")]
+
+
+def resolve_definitions(root: ET.Element, selected: list[ET.Element]) -> list[ET.Element]:
+    """Return the definition elements ``selected`` needs, transitively.
+
+    Follows chains -- a shape referencing a clip path whose contents reference
+    a gradient pulls in both -- and tolerates dangling and circular references.
+    Elements already present in ``selected`` are skipped so a `<use>` pointing
+    at a sibling shape does not duplicate it.
+    """
+    index = {node.attrib["id"]: node for node in root.iter() if "id" in node.attrib}
+    already_present = {node.attrib["id"] for node in selected if "id" in node.attrib}
+
+    pending = collect_referenced_ids(selected) | collect_referenced_ids(collect_style_elements(root))
+    resolved: dict[str, ET.Element] = {}
+    while pending:
+        target_id = pending.pop()
+        if target_id in resolved or target_id in already_present:
+            continue
+        definition = index.get(target_id)
+        if definition is None:  # dangling reference: nothing to copy
+            continue
+        resolved[target_id] = definition
+        pending |= collect_referenced_ids([definition])
+
+    document_order = [node.attrib["id"] for node in root.iter() if node.attrib.get("id") in resolved]
+    return [resolved[node_id] for node_id in dict.fromkeys(document_order)]
+
+
+def _is_tag(element: ET.Element, name: str) -> bool:
+    return isinstance(element.tag, str) and element.tag.split("}")[-1] == name
+
+
 # --- writing fragments ----------------------------------------------------
 
 def build_svg_fragment(
     source_root: ET.Element, children: list[ET.Element], bounds: Box, padding: int, output_path: Path
 ) -> None:
-    """Write the selected children into their own document, re-origined."""
+    """Write the selected children into their own document, re-origined.
+
+    The fragment carries any definitions and stylesheets the children depend
+    on; without them an extracted icon loses its gradients, clipping, masks,
+    filters, and symbols, and can render as blank or invalid.
+    """
     fragment = ET.Element(
         f"{{{SVG_NS}}}svg",
         {
@@ -136,6 +213,19 @@ def build_svg_fragment(
     )
     if "style" in source_root.attrib:
         fragment.set("style", source_root.attrib["style"])
+
+    for style in collect_style_elements(source_root):
+        fragment.append(deepcopy(style))
+
+    definitions = resolve_definitions(source_root, children)
+    if definitions:
+        # Definitions are deliberately not translated: a userSpaceOnUse
+        # gradient or clip path is resolved in the referencing shape's space,
+        # so it already moves with the transform applied below.
+        defs = ET.SubElement(fragment, f"{{{SVG_NS}}}defs")
+        for definition in definitions:
+            defs.append(deepcopy(definition))
+
     dx = padding - bounds.x
     dy = padding - bounds.y
     for child in children:
@@ -170,11 +260,12 @@ def normalize_svg_to_canvas(
     elif mode == "individual_fit":
         scale = min(target_w / max(1.0, source_w), target_h / max(1.0, source_h))
 
-    defs_children = []
+    # Definitions and stylesheets stay at the root; only drawables are scaled.
+    root_level_children = []
     drawable_children = []
     for child in root:
-        if isinstance(child.tag, str) and child.tag.endswith("defs"):
-            defs_children.append(deepcopy(child))
+        if _is_tag(child, "defs") or _is_tag(child, "style"):
+            root_level_children.append(deepcopy(child))
         else:
             drawable_children.append(deepcopy(child))
 
@@ -187,8 +278,8 @@ def normalize_svg_to_canvas(
             "viewBox": f"0 0 {target_w} {target_h}",
         },
     )
-    for defs in defs_children:
-        canvas_root.append(defs)
+    for child in root_level_children:
+        canvas_root.append(child)
 
     scaled_w = source_w * scale
     scaled_h = source_h * scale

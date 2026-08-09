@@ -92,6 +92,13 @@ macOS build is available upon request.
 depends on content: monochrome shapes are traced to vector paths, while colored or
 non-monochrome content is embedded as raster inside the `SVG`.
 
+When extracting from `SVG`, each icon carries the definitions it actually
+references — gradients, clip paths, masks, filters, patterns, markers, and
+`<use>`/`<symbol>` targets — resolved transitively, so a gradient that inherits
+stops from another gradient brings both. Definitions nothing in the icon uses are
+left out, keeping each file small. Document `<style>` rules are copied in full,
+since deciding which CSS applies would mean reimplementing the cascade.
+
 ## Installation
 
 Requires **Python 3.10+**.
