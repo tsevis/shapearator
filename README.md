@@ -6,20 +6,38 @@ Current version: `0.4.2`
 
 ![Shapearator workspace](docs/readme/workspace.webp)
 
-Shapearator turns one sheet full of shapes or icons into a tidy set of
-individually cropped, cleanly named, well-organized files. Instead of cropping,
-renaming and sorting every asset by hand, it finds each icon, separates it,
-normalizes it onto a shared canvas, and writes structured exports with per-icon
-metadata.
+## The problem this solves
 
-It is a **local-first** Python app with a desktop GUI and a full CLI. It reads
-`PNG` and `SVG` sheets and exports `PNG`, `JPG`, `TIFF` and `SVG`. Optional
-**semantic naming** gives each icon a meaningful filename — `heart.png` rather
-than `icon_003.png` — using a local vision model through **either Ollama or
-llama.cpp**, whichever you already run.
+Designers and illustrators rarely draw one icon at a time. You fill a page with
+forty sketches, or lay a whole set out on a single artboard, or scan a sheet of
+marks made with a brush. The artwork is finished — but it is all in one file,
+and it is useless that way.
 
-Nothing leaves your machine. There are no cloud endpoints, and the model
-backends are hard-restricted to local addresses.
+What you actually need is forty separate assets: each one cropped to its own
+drawing, sitting on a consistent canvas so they line up in a grid, exported in
+whatever formats the project wants, and named something you can find again in
+six months. Producing that by hand means selecting, cropping, centring,
+exporting and typing a filename forty times over — an afternoon of mechanical
+work where the only real skill involved is patience, and where the results are
+never quite consistent.
+
+**Shapearator does that pass for you.** Give it the sheet; it finds every
+individual mark or object, separates it, centres it on a shared canvas, writes
+out each format you asked for, and records what it did. A page of sketches
+becomes an organized, reusable asset library in one run.
+
+The naming is the part that usually surprises people. Rather than
+`icon_001.png`, `icon_002.png`, a local vision model can *look* at each
+extracted icon and name it for what it is — `lightbulb.png`, `heart.png`,
+`magnifier.png` — and record tags and a confidence score alongside it. That
+turns the output from a numbered pile into something searchable.
+
+All of it runs on your own machine. The vision models are local, the endpoints
+are hard-restricted to `localhost`, and your artwork is never uploaded
+anywhere. Shapearator is a **local-first** Python app with a desktop GUI and a
+full CLI: it reads `PNG` and `SVG` sheets, exports `PNG`, `JPG`, `TIFF` and
+`SVG`, and drives **either Ollama or llama.cpp** — whichever you already run —
+for naming.
 
 ---
 
@@ -349,4 +367,8 @@ backend nor Inkscape.
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Created by Charis Tsevis.
+
+`inkscape` and `potrace` are required external tools, invoked as separate
+programs rather than linked in; they keep their own licenses (both
+GPL-2.0-or-later).
