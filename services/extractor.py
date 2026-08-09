@@ -28,6 +28,7 @@ from .extraction_types import (
     ExtractionResult,
     NamingSummary,
 )
+from .metadata_paths import portable_output_path, scrub_local_paths
 from .geometry import (
     Box,
     build_binary_mask,
@@ -236,7 +237,9 @@ class IconExtractor:
             "semantic_confidence": icon.semantic_confidence,
             "group_id": f"group-{icon.index:03d}",
             "sheet_index": icon.index,
-            "source_file": str(input_path),
+            # Name only: this file is a deliverable, and the full path would
+            # disclose the account name and layout of the exporting machine.
+            "source_file": input_path.name,
             "source_bounds": list(icon.source_bounds),
             "source_size": list(icon.source_size),
             "canvas_size": list(icon.canvas_size),
@@ -246,8 +249,11 @@ class IconExtractor:
             "requested_model": active_vision_model(self.settings) if requested else None,
             "model_used": active_vision_model(self.settings) if was_named else None,
             "naming_status": icon.naming_status,
-            "naming_error": icon.naming_error,
-            "formats": {fmt: str(staging.final_path(path)) for fmt, path in sorted(icon.outputs.items())},
+            "naming_error": scrub_local_paths(icon.naming_error),
+            "formats": {
+                fmt: portable_output_path(staging.final_path(path), staging.output_dir)
+                for fmt, path in sorted(icon.outputs.items())
+            },
             "canvas_mode": self.settings.canvas_mode,
             "dominant_color": dominant_color,
             "palette": palette,

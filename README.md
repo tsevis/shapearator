@@ -326,6 +326,13 @@ a failed model call:
 | `naming_error` | why this icon was not named, when it was attempted and failed |
 | `pipeline` | includes `+ <provider>_labeling` only for an icon a model really named |
 
+Metadata is written to be publishable. Exported icons and their JSON travel — into
+zips, repositories, and other people's hands — so nothing in them describes the
+machine that produced them: `source_file` is the source sheet's name, `formats`
+holds paths relative to the export folder (which also keeps them valid after the
+folder moves), and any recorded error text has the home directory replaced with
+`~`. The same metadata is embedded in each exported `SVG`.
+
 ## Configuration
 
 User settings live in `config/settings.json` and can hold defaults for provider

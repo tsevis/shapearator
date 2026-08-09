@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .metadata_paths import scrub_local_paths
 from .settings_schema import FORMATS
 
 MANIFEST_NAME = ".shapearator-manifest.json"
@@ -219,7 +220,10 @@ class ExportStaging:
         payload = {
             "manifest_version": MANIFEST_VERSION,
             "app_version": app_version,
-            "input": str(input_path),
+            # Local bookkeeping, but it travels if the folder is shared: keep
+            # enough to identify the source sheet, minus the account name.
+            "input": scrub_local_paths(str(input_path)),
+            "input_name": input_path.name,
             "formats": sorted(formats),
             "icon_count": icon_count,
             "created_at": datetime.now(timezone.utc).isoformat(),

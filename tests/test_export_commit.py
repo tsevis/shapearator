@@ -142,7 +142,8 @@ def test_a_manifest_records_the_run(tmp_path):
 
     manifest = read_manifest(out)
     assert manifest is not None
-    assert manifest["input"] == str(sheet)
+    assert manifest["input_name"] == sheet.name
+    assert str(Path.home()) not in manifest["input"]
     assert sorted(manifest["formats"]) == ["jpg", "png"]
     assert manifest["icon_count"] == 2
     assert manifest["manifest_version"] == 1
@@ -258,6 +259,7 @@ def test_metadata_records_committed_paths_not_staged_ones(tmp_path):
     out = tmp_path / "exports"
     _run(_sheet(tmp_path / "s.png", 1), out)
     payload = json.loads((out / "metadata" / "icon_001.json").read_text(encoding="utf-8"))
-    recorded = Path(payload["formats"]["png"])
-    assert STAGING_NAME not in str(recorded)
-    assert recorded.exists()
+    recorded = payload["formats"]["png"]
+    # Recorded relative to the output folder, and pointing at the committed file.
+    assert STAGING_NAME not in recorded
+    assert (out / recorded).exists()
