@@ -7,9 +7,11 @@ any pixel is written, and each icon carries its own naming outcome afterwards.
 from __future__ import annotations
 
 import re
+import tempfile
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, NamedTuple
+from typing import Callable, Iterator, NamedTuple
 
 from .extraction_types import (
     NAMING_FAILED,
@@ -19,6 +21,7 @@ from .extraction_types import (
     ExtractionProgress,
     NamingSummary,
 )
+from .svg_ops import export_svg_to_png
 from .vision import (
     PreflightResult,
     active_vision_model,
@@ -88,14 +91,15 @@ def apply_semantic_names(
     renamed: list[ExtractedIcon] = []
     errors: list[str] = []
 
-    for position, icon in enumerate(icons, start=1):
-        _emit(progress_callback, position, len(icons))
-        semantic, error = _label_icon(client, model, icon)
-        if error is not None:
-            errors.append(error)
-            renamed.append(replace(icon, naming_status=NAMING_FAILED, naming_error=error))
-            continue
-        renamed.append(_rename_icon(icon, semantic, used_names))
+    with tempfile.TemporaryDirectory(prefix="shapearator_label_") as scratch:
+        for position, icon in enumerate(icons, start=1):
+            _emit(progress_callback, position, len(icons))
+            semantic, error = _label_icon(client, model, icon, Path(scratch))
+            if error is not None:
+                errors.append(error)
+                renamed.append(replace(icon, naming_status=NAMING_FAILED, naming_error=error))
+                continue
+            renamed.append(_rename_icon(icon, semantic, used_names))
 
     named = sum(1 for icon in renamed if icon.naming_status == NAMING_NAMED)
     failed = len(renamed) - named
@@ -131,12 +135,33 @@ def _emit(callback: ProgressCallback, current: int, total: int) -> None:
         callback(ExtractionProgress("naming", current, total, f"Naming icon {current} of {total}"))
 
 
-def _label_icon(client, model: str, icon: ExtractedIcon) -> tuple[dict, str | None]:
-    if icon.preview_path is None or not icon.preview_path.exists():
-        return {}, "no bitmap preview was available to label"
+@contextmanager
+def _label_preview(icon: ExtractedIcon, scratch_dir: Path) -> Iterator[Path]:
+    """Yield a bitmap of ``icon`` for the model to look at.
+
+    An exported bitmap is used directly. An SVG-only export has none, so one is
+    rendered here purely for labeling and discarded with ``scratch_dir`` -- a
+    vector run gets semantic filenames without the user having to select a
+    bitmap format they did not want.
+    """
+    if icon.preview_path is not None and icon.preview_path.exists():
+        yield icon.preview_path
+        return
+
+    svg_path = icon.outputs.get("svg")
+    if svg_path is None or not svg_path.exists():
+        raise LookupError("no image was available to label this icon")
+
+    preview = scratch_dir / f"label_{icon.index:04d}.png"
+    export_svg_to_png(svg_path, preview)
+    yield preview
+
+
+def _label_icon(client, model: str, icon: ExtractedIcon, scratch_dir: Path) -> tuple[dict, str | None]:
     try:
-        return client.identify_icon(model, icon.preview_path), None
-    except Exception as exc:  # any backend failure is per-icon, never fatal
+        with _label_preview(icon, scratch_dir) as preview:
+            return client.identify_icon(model, preview), None
+    except Exception as exc:  # any labeling failure is per-icon, never fatal
         return {}, str(exc) or exc.__class__.__name__
 
 

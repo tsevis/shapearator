@@ -202,6 +202,10 @@ With `--semantic-naming`, the vision backend is checked before any file is writt
 In the GUI the same check runs when you click Extract; if the backend is not ready it
 asks whether to export with generic filenames or cancel.
 
+Semantic naming works with any format selection. Exporting `SVG` alone still gets
+semantic filenames: a preview is rendered internally for the model to look at and
+removed once labeling finishes, so no bitmap is written to the output folder.
+
 ### Config options
 
 - `--use-config`

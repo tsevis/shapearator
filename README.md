@@ -56,6 +56,11 @@ filled in only for an icon a model really named, and each icon carries a
 A single icon whose labeling call fails is not fatal — it keeps its generic name,
 records the reason, and the run finishes with a warning and a named/failed count.
 
+Semantic naming works for any export selection, including `SVG` on its own: when an
+icon has no bitmap for the model to look at, one is rendered internally for labeling
+and discarded afterwards. You never have to add a bitmap format just to get
+meaningful `SVG` filenames.
+
 **Which should I pick?** If you want the simplest setup, choose **Ollama**: run the
 daemon once, `ollama pull` a vision model, and it stays available in the background.
 If you want to run a specific GGUF (including newer models like Qwen3-VL that have no

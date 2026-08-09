@@ -98,7 +98,7 @@ Configuration and paths:
 Extraction engine:
 
 - `extractor.py`: pipeline orchestration — `IconExtractor`, metadata generation
-- `semantic_naming.py`: the pre-export backend gate (`check_backend_ready`), per-icon labeling and renaming with rollback, and the naming summary
+- `semantic_naming.py`: the pre-export backend gate (`check_backend_ready`), per-icon labeling (rendering a throwaway preview when an icon has no bitmap) and renaming with rollback, and the naming summary
 - `export_commit.py`: staged exports and the run manifest — publishes a run only once every step succeeds, and replaces only the files the manifest lists
 - `extraction_types.py`: `ExtractedIcon`, `NamingSummary`, `ExtractionResult`, `ExtractionProgress` — the data passed to the GUI and CLI
 - `geometry.py`: `Box`, foreground masks, icon detection, reading-order sorting, uniform scale
@@ -137,6 +137,7 @@ This folder is source code and acts as the application core.
 - `test_semantic_naming.py`: preflight enforcement and downgrade, per-icon naming status, rename rollback, metadata truthfulness
 - `test_svg_definitions.py`: reference scanning, transitive definition resolution, stylesheet retention, and survival through normalization
 - `test_export_commit.py`: stale-output replacement, preservation of untracked files, manifest contents, and rollback on a failed run or commit
+- `test_svg_only_naming.py`: semantic naming for SVG-only exports, including preview rendering, cleanup, and per-icon failure reporting
 
 Run with `pytest -q` from the repository root.
 
