@@ -7,9 +7,9 @@ This module wires them together against the user's settings.
 from __future__ import annotations
 
 import json
-import re
 import tempfile
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -20,7 +20,13 @@ import numpy as np
 from PIL import Image
 
 from .config_store import AppSettings
-from .extraction_types import ExtractedIcon, ExtractionProgress, ExtractionResult
+from .extraction_types import (
+    NAMING_NAMED,
+    ExtractedIcon,
+    ExtractionProgress,
+    ExtractionResult,
+    NamingSummary,
+)
 from .geometry import (
     Box,
     build_binary_mask,
@@ -39,6 +45,14 @@ from .raster_ops import (
     is_effectively_monochrome_png,
     write_rgba_crop,
 )
+from .semantic_naming import (
+    SemanticPreflightError,
+    apply_semantic_names,
+    check_backend_ready,
+    mark_all_unnamed,
+    naming_requested,
+    slugify,
+)
 from .svg_ops import (
     build_svg_fragment,
     ensure_element_ids,
@@ -52,7 +66,7 @@ from .svg_ops import (
     vectorize_png_crop,
     wrap_png_in_svg,
 )
-from .vision import active_vision_model, build_vision_client, semantic_naming_enabled
+from .vision import active_vision_model
 
 __all__ = [
     "APP_VERSION",
@@ -60,16 +74,12 @@ __all__ = [
     "ExtractionProgress",
     "ExtractionResult",
     "IconExtractor",
+    "SemanticPreflightError",
     "extract_icon_palette",
     "slugify",
 ]
 
 APP_VERSION = "0.3.2"
-
-
-def slugify(text: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return re.sub(r"-{2,}", "-", normalized)
 
 
 def extract_icon_palette(preview_path: Path | None, svg_path: Path | None) -> tuple[str | None, list[str]]:
@@ -97,29 +107,51 @@ class IconExtractor:
         output_dir: Path,
         formats: set[str],
         progress_callback: Callable[[ExtractionProgress], None] | None = None,
+        allow_unnamed: bool = False,
     ) -> ExtractionResult:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        self._emit_progress(progress_callback, "prepare", 0, 1, "Loading source sheet")
+        """Extract every icon in ``input_path`` into ``output_dir``.
+
+        When semantic naming is on, the vision backend is checked *before* any
+        pixel is written: an unreachable model raises ``SemanticPreflightError``
+        in seconds rather than after a full export that silently produced
+        generic names. Pass ``allow_unnamed`` to downgrade to a geometry-only
+        run instead of aborting.
+        """
         suffix = input_path.suffix.lower()
-        if suffix == ".png":
-            icons = self._extract_from_png(input_path, output_dir, formats, progress_callback)
-        elif suffix == ".svg":
-            icons = self._extract_from_svg(input_path, output_dir, formats, progress_callback)
-        else:
+        if suffix not in {".png", ".svg"}:
             raise RuntimeError("Supported inputs are .png and .svg")
 
-        if semantic_naming_enabled(self.settings) and active_vision_model(self.settings):
+        self._emit_progress(progress_callback, "preflight", 0, 1, "Checking local model backend")
+        readiness = check_backend_ready(self.settings, allow_unnamed)
+        warnings = readiness.warnings
+        if readiness.result is not None:
+            self._emit_progress(progress_callback, "preflight", 1, 1, readiness.result.message)
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self._emit_progress(progress_callback, "prepare", 0, 1, "Loading source sheet")
+        if suffix == ".png":
+            icons = self._extract_from_png(input_path, output_dir, formats, progress_callback)
+        else:
+            icons = self._extract_from_svg(input_path, output_dir, formats, progress_callback)
+
+        if readiness.proceed:
             self._emit_progress(progress_callback, "naming", 0, max(1, len(icons)), "Naming icons with local model")
-            self._apply_semantic_names(icons, progress_callback)
+            icons, naming, naming_warnings = apply_semantic_names(self.settings, icons, progress_callback)
+            warnings += naming_warnings
+        else:
+            icons = mark_all_unnamed(icons)
+            naming = NamingSummary()
 
         self._emit_progress(progress_callback, "metadata", 0, max(1, len(icons)), "Writing metadata")
-        self._write_metadata_files(icons, output_dir, input_path, progress_callback)
+        icons = self._write_metadata_files(icons, output_dir, input_path, progress_callback)
 
         return ExtractionResult(
             input_path=input_path,
             output_dir=output_dir,
             icons=icons,
             provider_summary=self._provider_summary(),
+            naming=naming,
+            warnings=warnings,
         )
 
     def _provider_summary(self) -> str:
@@ -141,63 +173,37 @@ class IconExtractor:
         if callback is not None:
             callback(ExtractionProgress(phase=phase, current=current, total=total, message=message))
 
-    def _apply_semantic_names(
-        self,
-        icons: list[ExtractedIcon],
-        progress_callback: Callable[[ExtractionProgress], None] | None,
-    ) -> None:
-        client = build_vision_client(self.settings)
-        model = active_vision_model(self.settings)
-        used_names: dict[str, int] = {}
-        for index, icon in enumerate(icons, start=1):
-            if icon.preview_path is None or not icon.preview_path.exists():
-                continue
-            try:
-                semantic = client.identify_icon(model, icon.preview_path)
-                raw = semantic.get("label", "")
-                stem = slugify(raw) or f"icon-{icon.index:03d}"
-                icon.semantic_label = stem
-                icon.semantic_tags = semantic.get("tags", [])
-                icon.semantic_confidence = semantic.get("confidence")
-            except Exception:
-                continue
-            if stem in used_names:
-                used_names[stem] += 1
-                stem = f"{stem}-{used_names[stem]:02d}"
-            else:
-                used_names[stem] = 1
-            new_outputs: dict[str, Path] = {}
-            for fmt, old_path in icon.outputs.items():
-                new_path = old_path.with_name(f"{stem}{old_path.suffix.lower()}")
-                old_path.rename(new_path)
-                new_outputs[fmt] = new_path
-            icon.stem = stem
-            icon.outputs = new_outputs
-            icon.preview_path = new_outputs.get("png") or new_outputs.get("jpg") or new_outputs.get("tiff") or icon.preview_path
-            self._emit_progress(progress_callback, "naming", index, len(icons), f"Naming icon {index} of {len(icons)}")
-
     def _write_metadata_files(
         self,
         icons: list[ExtractedIcon],
         output_dir: Path,
         input_path: Path,
         progress_callback: Callable[[ExtractionProgress], None] | None,
-    ) -> None:
+    ) -> list[ExtractedIcon]:
         metadata_dir = output_dir / "metadata"
         metadata_dir.mkdir(parents=True, exist_ok=True)
         exported_at = datetime.now(timezone.utc).isoformat()
+        written: list[ExtractedIcon] = []
         for index, icon in enumerate(icons, start=1):
             payload = self._build_metadata_payload(icon, input_path, exported_at)
             metadata_path = metadata_dir / f"{icon.stem}.json"
             metadata_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
-            icon.metadata_path = metadata_path
             if "svg" in icon.outputs:
                 inject_svg_metadata(icon.outputs["svg"], payload)
+            written.append(replace(icon, metadata_path=metadata_path))
             self._emit_progress(progress_callback, "metadata", index, len(icons), f"Writing metadata {index} of {len(icons)}")
+        return written
 
     def _build_metadata_payload(self, icon: ExtractedIcon, input_path: Path, exported_at: str) -> dict:
+        """Describe one icon, distinguishing what was asked for from what happened.
+
+        ``requested_provider``/``requested_model`` record the configuration;
+        ``model_used`` is populated only for an icon a model actually named, so
+        a failed or skipped labeling pass can never read as a successful one.
+        """
         dominant_color, palette = extract_icon_palette(icon.preview_path, icon.outputs.get("svg"))
-        semantic = semantic_naming_enabled(self.settings)
+        was_named = icon.naming_status == NAMING_NAMED
+        requested = naming_requested(self.settings)
         return {
             "stem": icon.stem,
             "label": icon.semantic_label or icon.stem,
@@ -209,9 +215,13 @@ class IconExtractor:
             "source_bounds": list(icon.source_bounds),
             "source_size": list(icon.source_size),
             "canvas_size": list(icon.canvas_size),
-            "pipeline": "classical_cv" + (f" + {self.settings.provider}_labeling" if semantic else ""),
+            "pipeline": "classical_cv" + (f" + {self.settings.provider}_labeling" if was_named else ""),
             "provider": self.settings.provider,
-            "model_used": active_vision_model(self.settings) if semantic else None,
+            "requested_provider": self.settings.provider if requested else None,
+            "requested_model": active_vision_model(self.settings) if requested else None,
+            "model_used": active_vision_model(self.settings) if was_named else None,
+            "naming_status": icon.naming_status,
+            "naming_error": icon.naming_error,
             "formats": {fmt: str(path) for fmt, path in sorted(icon.outputs.items())},
             "canvas_mode": self.settings.canvas_mode,
             "dominant_color": dominant_color,

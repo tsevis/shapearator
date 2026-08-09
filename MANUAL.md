@@ -177,6 +177,20 @@ python shapearator.py INPUT --output-dir OUTPUT [options]
 - `--local-model-name`
 - `--semantic-naming`
 - `--no-semantic-naming`
+- `--allow-unnamed`
+
+### Semantic naming behavior
+
+With `--semantic-naming`, the vision backend is checked before any file is written.
+
+- Backend not ready: the run stops with an actionable message and writes nothing.
+- Backend not ready, with `--allow-unnamed`: the run exports with generic filenames
+  and warns; metadata records that no model named the icons.
+- Backend ready, but a single icon's labeling call fails: that icon keeps its generic
+  name and records the reason. The run finishes and reports named/failed counts.
+
+In the GUI the same check runs when you click Extract; if the backend is not ready it
+asks whether to export with generic filenames or cancel.
 
 ### Config options
 

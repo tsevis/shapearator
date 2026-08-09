@@ -6,14 +6,19 @@ import time
 from pathlib import Path
 
 from services.config_store import AppSettings, ConfigStore
-from services.extractor import ExtractionProgress, ExtractionResult, IconExtractor
+from services.extractor import (
+    ExtractionProgress,
+    ExtractionResult,
+    IconExtractor,
+    SemanticPreflightError,
+)
 from services.settings_schema import (
     BITMAP_EXPORT_MODES,
     CANVAS_MODES,
     FORMATS,
     PROVIDERS,
 )
-from services.vision import is_local_url, preflight
+from services.vision import is_local_url
 
 
 DETECTION_PRESETS = {
@@ -116,6 +121,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable semantic filenames and metadata enrichment.",
     )
     parser.set_defaults(semantic_naming=None)
+    parser.add_argument(
+        "--allow-unnamed",
+        action="store_true",
+        help=(
+            "Continue with generic filenames if the vision backend is unavailable, "
+            "instead of aborting. Metadata still records that no model named the icons."
+        ),
+    )
     parser.add_argument(
         "--use-config",
         action="store_true",
@@ -242,10 +255,8 @@ def print_run_header(settings: AppSettings, input_path: Path, output_dir: Path, 
     print(f"Detection: {describe_detection_origin(args, settings)}")
     for note in provider_notes(settings):
         print(note)
-    if settings.semantic_naming and settings.provider in {"ollama", "llamacpp"}:
-        result = preflight(settings)
-        marker = "ready" if result.ok else "NOT READY"
-        print(f"Preflight [{marker}]: {result.message}")
+    # The backend check itself is owned by the extractor, which runs it before
+    # writing anything; reporting it here too would mean two round-trips.
     print("")
 
 
@@ -323,6 +334,10 @@ def print_completion(result: ExtractionResult) -> None:
     print("")
     print(f"Provider summary: {result.provider_summary}")
     print(f"Completed: extracted {len(result.icons)} icons")
+    if result.naming.requested:
+        print(result.naming.describe())
+    for warning in result.warnings:
+        print(f"Warning: {warning}")
     print(f"Output written to: {result.output_dir.resolve()}")
     metadata_dir = result.output_dir / "metadata"
     if metadata_dir.exists():
@@ -348,12 +363,20 @@ def main() -> int:
     maybe_save_config(settings, args)
     print_run_header(settings, input_path, output_dir, formats, args)
 
-    result = IconExtractor(settings).extract(
-        input_path=input_path,
-        output_dir=output_dir,
-        formats=formats,
-        progress_callback=progress_printer,
-    )
+    try:
+        result = IconExtractor(settings).extract(
+            input_path=input_path,
+            output_dir=output_dir,
+            formats=formats,
+            progress_callback=progress_printer,
+            allow_unnamed=args.allow_unnamed,
+        )
+    except SemanticPreflightError as exc:
+        raise SystemExit(
+            f"Semantic naming is enabled but the backend is not ready: {exc}\n"
+            "Fix the backend, disable naming with --no-semantic-naming, "
+            "or export generic filenames with --allow-unnamed."
+        ) from exc
     print_completion(result)
     return 0
 

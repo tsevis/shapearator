@@ -42,8 +42,19 @@ results and behavior stay consistent across backends.
 | Server | always-on daemon | app can launch `llama-server` for you |
 
 Both are guarded to local endpoints only, both get automatic retry on cold starts,
-and both are checked by a pre-run **preflight** that reports clearly if a server is
-down, a model is missing, or a loaded model is not vision-capable.
+and both are checked by a **preflight** that runs *before anything is exported* and
+reports clearly if a server is down, a model is missing, or a loaded model is not
+vision-capable.
+
+When semantic naming is enabled and the backend is not ready, the run stops before
+writing a single file rather than quietly producing `icon_001…` names. Pass
+`--allow-unnamed` (CLI) or answer the GUI prompt to export with generic filenames
+instead. Either way the metadata records what actually happened: `model_used` is
+filled in only for an icon a model really named, and each icon carries a
+`naming_status` of `named`, `failed`, or `not_requested`.
+
+A single icon whose labeling call fails is not fatal — it keeps its generic name,
+records the reason, and the run finishes with a warning and a named/failed count.
 
 **Which should I pick?** If you want the simplest setup, choose **Ollama**: run the
 daemon once, `ollama pull` a vision model, and it stays available in the background.
@@ -273,6 +284,17 @@ Each metadata JSON includes exported paths by format, source bounds and size, ou
 canvas size, provider and model details, vector export mode, dominant color and
 palette, and (when available) the semantic label, tags, and confidence.
 
+Naming is reported honestly, so a downstream consumer can tell enrichment apart from
+a failed model call:
+
+| Field | Meaning |
+| --- | --- |
+| `requested_provider` / `requested_model` | what the run was configured to use, whether or not it worked |
+| `model_used` | the model that actually named *this* icon; `null` otherwise |
+| `naming_status` | `named`, `failed`, or `not_requested` |
+| `naming_error` | why this icon was not named, when it was attempted and failed |
+| `pipeline` | includes `+ <provider>_labeling` only for an icon a model really named |
+
 ## Configuration
 
 User settings live in `config/settings.json` and can hold defaults for provider
@@ -328,7 +350,8 @@ For a full user guide, see [MANUAL.md](MANUAL.md). For a detailed repository map
 - `Ollama provider requires a local endpoint...` — point `--ollama-url` to `localhost`, `127.0.0.1`, or `::1`.
 - `llama.cpp provider requires a local endpoint...` — point `--llamacpp-url` to `localhost`, `127.0.0.1`, or `::1`.
 - llama.cpp model dropdown is empty — start `llama-server` with a vision model (and its `--mmproj`), then click `Refresh llama.cpp Models`, or run `python shapearator.py --setup`.
-- Semantic naming does nothing — confirm the preflight line in the CLI header reports `ready`; start the backend or download a model with `--setup`.
+- `Semantic naming is enabled but the backend is not ready:` — start the backend, download a model with `--setup`, disable naming with `--no-semantic-naming`, or export generic filenames with `--allow-unnamed`.
+- Some icons kept generic names — the run reports how many failed and why; check `naming_error` in each icon's metadata.
 - Very small marks disappear — lower `min-area` or try the `Tiny Details` preset.
 - Multiple strokes split apart — raise `merge-gap` or try the `Loose Sketches` preset.
 - Exports inconsistent in scale — use `uniform_to_largest` for a shared visual scale.

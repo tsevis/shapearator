@@ -97,8 +97,9 @@ Configuration and paths:
 
 Extraction engine:
 
-- `extractor.py`: pipeline orchestration — `IconExtractor`, semantic naming, metadata generation
-- `extraction_types.py`: `ExtractedIcon`, `ExtractionResult`, `ExtractionProgress` — the data passed to the GUI and CLI
+- `extractor.py`: pipeline orchestration — `IconExtractor`, metadata generation
+- `semantic_naming.py`: the pre-export backend gate (`check_backend_ready`), per-icon labeling and renaming with rollback, and the naming summary
+- `extraction_types.py`: `ExtractedIcon`, `NamingSummary`, `ExtractionResult`, `ExtractionProgress` — the data passed to the GUI and CLI
 - `geometry.py`: `Box`, foreground masks, icon detection, reading-order sorting, uniform scale
 - `raster_ops.py`: canvas composition, transparency (interior holes preserved), palette and monochrome analysis
 - `svg_ops.py`: SVG parsing, fragment building, canvas normalization, metadata injection, and the Inkscape/potrace subprocess calls
@@ -132,6 +133,7 @@ This folder is source code and acts as the application core.
 - `test_geometry.py`: box arithmetic, masks, blob detection, reading-order sorting
 - `test_raster_ops.py`: canvas composition and clipping, interior-hole transparency, palette and monochrome analysis
 - `test_svg_ops.py`: viewBox parsing, id assignment, fragment building, canvas normalization, metadata injection
+- `test_semantic_naming.py`: preflight enforcement and downgrade, per-icon naming status, rename rollback, metadata truthfulness
 
 Run with `pytest -q` from the repository root.
 

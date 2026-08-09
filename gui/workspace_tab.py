@@ -10,8 +10,9 @@ from PIL import Image, ImageOps, ImageTk
 
 from services.config_store import AppSettings
 from services.extractor import ExtractionProgress, ExtractionResult, IconExtractor
+from services.semantic_naming import naming_requested
 from services.svg_ops import export_svg_to_png
-from services.vision import is_local_url
+from services.vision import PreflightResult, is_local_url, preflight
 
 
 CANVAS_MODE_LABELS = {
@@ -328,6 +329,10 @@ class WorkspaceTab(ttk.Frame):
         self.settings.bitmap_export_mode = self.bitmap_export_mode_var.get()
         self.on_settings_commit(self.settings)
 
+        allow_unnamed = self._confirm_semantic_backend()
+        if allow_unnamed is None:
+            return
+
         self.progress_value_var.set(0.0)
         self.progress_label_var.set("Preparing extraction...")
         self.status_var.set("Extraction running...")
@@ -339,6 +344,7 @@ class WorkspaceTab(ttk.Frame):
                     output_dir,
                     formats,
                     progress_callback=self._queue_progress_update,
+                    allow_unnamed=allow_unnamed,
                 )
             except Exception as exc:
                 # Bind now: `exc` is unbound once the except block exits, so a
@@ -348,6 +354,38 @@ class WorkspaceTab(ttk.Frame):
             self.after(0, lambda value=result: self._handle_result(value))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _confirm_semantic_backend(self) -> bool | None:
+        """Check the vision backend before exporting anything.
+
+        Returns the ``allow_unnamed`` flag to run with, or ``None`` if the user
+        cancelled. Checking here rather than mid-run means an unreachable model
+        costs a few seconds instead of a full export that silently produced
+        generic filenames.
+        """
+        if not naming_requested(self.settings):
+            return False
+
+        self.status_var.set("Checking local model backend...")
+        self.update_idletasks()
+        try:
+            result = preflight(self.settings)
+        except Exception as exc:  # a broken endpoint must not kill the click
+            result = PreflightResult(False, self.settings.provider, str(exc))
+
+        if result.ok:
+            self.status_var.set("Model ready.")
+            return False
+
+        self.status_var.set("Model backend not ready.")
+        proceed = messagebox.askyesno(
+            "Model Not Ready",
+            f"{result.message}\n\n"
+            "Export anyway with generic filenames (icon_001, icon_002, ...)?\n"
+            "Metadata will record that no model named these icons.",
+            default=messagebox.NO,
+        )
+        return True if proceed else None
 
     def _queue_progress_update(self, progress: ExtractionProgress) -> None:
         self.after(0, lambda p=progress: self._handle_progress(p))
@@ -376,10 +414,17 @@ class WorkspaceTab(ttk.Frame):
             )
         self.progress_value_var.set(100.0)
         self.progress_label_var.set(f"Done. Exported {len(result.icons)} icons.")
-        self.status_var.set(f"Extracted {len(result.icons)} icons to {result.output_dir}")
+
+        status = f"Extracted {len(result.icons)} icons to {result.output_dir}"
+        if result.naming.requested:
+            status += f"  |  {result.naming.describe()}"
+        self.status_var.set(status)
+
         if result.icons:
             self.results_tree.selection_set(str(result.icons[0].index))
             self._show_preview(result.icons[0])
+        if result.warnings:
+            messagebox.showwarning("Completed With Warnings", "\n\n".join(result.warnings))
 
     def _on_select_result(self, _event=None) -> None:
         if self.current_result is None:
