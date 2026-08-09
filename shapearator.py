@@ -7,6 +7,12 @@ from pathlib import Path
 
 from services.config_store import AppSettings, ConfigStore
 from services.extractor import ExtractionProgress, ExtractionResult, IconExtractor
+from services.settings_schema import (
+    BITMAP_EXPORT_MODES,
+    CANVAS_MODES,
+    FORMATS,
+    PROVIDERS,
+)
 from services.vision import is_local_url, preflight
 
 
@@ -17,10 +23,11 @@ DETECTION_PRESETS = {
     "Bold Shapes": {"padding": 14, "min_area": 320, "merge_gap": 15},
 }
 
-CANVAS_MODE_CHOICES = ["original", "uniform_to_largest", "individual_fit"]
-BITMAP_EXPORT_MODE_CHOICES = ["keep_background", "transparent_preserve_interior"]
-FORMAT_CHOICES = ["png", "jpg", "tiff", "svg"]
-PROVIDER_CHOICES = ["geometry", "ollama", "llamacpp", "directory"]
+# argparse wants lists; the schema module owns the values.
+CANVAS_MODE_CHOICES = list(CANVAS_MODES)
+BITMAP_EXPORT_MODE_CHOICES = list(BITMAP_EXPORT_MODES)
+FORMAT_CHOICES = list(FORMATS)
+PROVIDER_CHOICES = list(PROVIDERS)
 
 
 def build_parser() -> argparse.ArgumentParser:

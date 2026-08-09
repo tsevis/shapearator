@@ -1,32 +1,19 @@
+"""Reading and writing the persisted settings file.
+
+The schema itself lives in :mod:`services.settings_schema`; this module only
+handles file I/O and re-exports :class:`AppSettings` for existing callers.
+"""
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+import logging
 from pathlib import Path
 
+from .settings_schema import AppSettings, coerce_settings, settings_to_dict
 
-@dataclass
-class AppSettings:
-    appearance: str = "light"
-    provider: str = "geometry"
-    ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen2.5vl:3b"
-    llamacpp_url: str = "http://127.0.0.1:8080"
-    llamacpp_model: str = ""
-    models_root: str = ""  # where downloaded llama.cpp GGUF weights live; blank = <repo>/models
-    local_model_root: str = ""  # optional directory-provider catalog root
-    local_model_name: str = ""
-    semantic_naming: bool = False
-    default_formats: list[str] = field(default_factory=lambda: ["png", "svg"])
-    output_width: int = 512
-    output_height: int = 512
-    canvas_mode: str = "uniform_to_largest"
-    bitmap_export_mode: str = "transparent_preserve_interior"
-    padding: int = 12
-    min_area: int = 200
-    merge_gap: int = 13
-    last_input_path: str = ""
-    last_output_dir: str = ""
+__all__ = ["AppSettings", "ConfigStore"]
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigStore:
@@ -34,19 +21,38 @@ class ConfigStore:
         self.config_path = config_path
 
     def load(self) -> AppSettings:
+        """Return the stored settings, falling back to defaults on any problem."""
+        return self.load_with_warnings()[0]
+
+    def load_with_warnings(self) -> tuple[AppSettings, list[str]]:
+        """Return the stored settings alongside any recovery warnings.
+
+        A missing, unreadable, or malformed file yields defaults rather than
+        raising, so a bad config can never block the GUI or CLI from starting.
+        """
         if not self.config_path.exists():
-            return AppSettings()
+            return AppSettings(), []
         try:
-            data = json.loads(self.config_path.read_text(encoding="utf-8"))
-        except Exception:
-            return AppSettings()
-        base = asdict(AppSettings())
-        base.update(data)
-        return AppSettings(**base)
+            raw = self.config_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            warning = f"Could not read {self.config_path}: {exc}. Using default settings."
+            logger.warning(warning)
+            return AppSettings(), [warning]
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            warning = f"{self.config_path} is not valid JSON ({exc}). Using default settings."
+            logger.warning(warning)
+            return AppSettings(), [warning]
+
+        settings, warnings = coerce_settings(data)
+        for warning in warnings:
+            logger.warning("%s: %s", self.config_path, warning)
+        return settings, warnings
 
     def save(self, settings: AppSettings) -> None:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(
-            json.dumps(asdict(settings), indent=2, ensure_ascii=True),
+            json.dumps(settings_to_dict(settings), indent=2, ensure_ascii=True),
             encoding="utf-8",
         )
