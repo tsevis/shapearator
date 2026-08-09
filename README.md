@@ -2,7 +2,7 @@
 
 Created by Charis Tsevis.
 
-Current version: `0.4.1`
+Current version: `0.4.2`
 
 ![Shapearator workspace](docs/readme/workspace.webp)
 
@@ -96,6 +96,19 @@ macOS build is available upon request.
 `SVG` input is the highest-fidelity route when available. Raster-to-`SVG` output
 depends on content: monochrome shapes are traced to vector paths, while colored or
 non-monochrome content is embedded as raster inside the `SVG`.
+
+### How icons are found in an SVG
+
+Shapearator reads the artwork's own structure first. If the sheet is built from
+groups — one `<g>` per icon, as most vector icon sets are — each group becomes
+one icon, exactly as authored. Wrapping layers are seen through, so a sheet
+exported from Illustrator or Figma with everything inside a single `Layer_1`
+works the same as a flat one, including when that layer carries a transform.
+
+If instead the sheet is loose shapes with no grouping — a hand-drawn sheet where
+one icon is several separate strokes — those strokes are clustered visually, the
+same way `PNG` input is handled. Detection settings (padding, min area, merge)
+apply to that case; grouped artwork needs no tuning at all.
 
 When extracting from `SVG`, each icon carries the definitions it actually
 references — gradients, clip paths, masks, filters, patterns, markers, and

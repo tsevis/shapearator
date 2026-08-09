@@ -263,12 +263,21 @@ def test_query_svg_boxes_parses_the_inkscape_csv(tmp_path):
     assert boxes["shape_0002"] == Box(0, 0, 5, 5)
 
 
-def test_query_svg_boxes_skips_the_layer_row_and_junk_lines(tmp_path):
-    stdout = "Layer_1,0,0,500,500\nshape_0001,1,1,2,2\nnot,enough\n\n"
+def test_query_svg_boxes_skips_junk_lines(tmp_path):
+    stdout = "shape_0001,1,1,2,2\nnot,enough\n\n"
     binary_patch, run_patch = _fake_inkscape(stdout)
     with binary_patch, run_patch:
         boxes = query_svg_boxes(tmp_path / "in.svg")
     assert list(boxes) == ["shape_0001"]
+
+
+def test_query_svg_boxes_keeps_container_rows(tmp_path):
+    """Layer and group rows are needed now: icons often live inside them."""
+    stdout = "Layer_1,0,0,500,500\nshape_0001,1,1,2,2\n"
+    binary_patch, run_patch = _fake_inkscape(stdout)
+    with binary_patch, run_patch:
+        boxes = query_svg_boxes(tmp_path / "in.svg")
+    assert sorted(boxes) == ["Layer_1", "shape_0001"]
 
 
 def test_query_svg_boxes_never_returns_a_zero_sized_box(tmp_path):

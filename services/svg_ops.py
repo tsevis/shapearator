@@ -71,8 +71,20 @@ def parse_viewbox(root: ET.Element) -> tuple[float, float, float, float]:
     return tuple(parts)  # type: ignore[return-value]
 
 
-def ensure_element_ids(root: ET.Element) -> None:
-    """Give every drawable top-level child a stable id for box queries.
+#: Elements that describe rather than draw; never icon candidates.
+NON_DRAWABLE_TAGS = frozenset({"defs", "style", "metadata", "title", "desc", "script"})
+
+
+def is_drawable(element: ET.Element) -> bool:
+    return isinstance(element.tag, str) and element.tag.split("}")[-1] not in NON_DRAWABLE_TAGS
+
+
+def ensure_element_ids(root: ET.Element, deep: bool = True) -> None:
+    """Give every drawable element a stable id so its bounds can be queried.
+
+    Ids are needed at every depth, not just on root children: sheets exported
+    from Illustrator or Figma wrap all the artwork in a single layer group, and
+    the icons live inside it.
 
     Generated ids are checked against the ids already present anywhere in the
     document: a source file that happens to use the ``shape_NNNN`` pattern
@@ -81,19 +93,79 @@ def ensure_element_ids(root: ET.Element) -> None:
     """
     taken = {element.attrib["id"] for element in root.iter() if "id" in element.attrib}
     counter = 1
-    for child in root:
-        if not isinstance(child.tag, str):
+    candidates = list(root.iter()) if deep else list(root)
+    for element in candidates:
+        if element is root or not is_drawable(element):
             continue
-        if child.tag.endswith("defs"):
-            continue
-        if "id" in child.attrib:
+        if "id" in element.attrib:
             continue
         while f"shape_{counter:04d}" in taken:
             counter += 1
         generated = f"shape_{counter:04d}"
-        child.set("id", generated)
+        element.set("id", generated)
         taken.add(generated)
         counter += 1
+
+
+def build_parent_map(root: ET.Element) -> dict[ET.Element, ET.Element]:
+    """ElementTree has no parent pointers; build them once."""
+    return {child: parent for parent in root.iter() for child in parent}
+
+
+def ancestor_transform(element: ET.Element, parents: dict[ET.Element, ET.Element]) -> str:
+    """Concatenate the transforms of every ancestor, outermost first.
+
+    Queried bounds are in document space. Lifting an element out of its
+    ancestors therefore has to carry their transforms with it, or the extracted
+    fragment will not match the bounds it was measured at.
+    """
+    chain: list[str] = []
+    current = parents.get(element)
+    while current is not None:
+        transform = current.attrib.get("transform", "").strip()
+        if transform:
+            chain.append(transform)
+        current = parents.get(current)
+    return " ".join(reversed(chain))
+
+
+#: Elements that hold other artwork. One of these usually *is* one icon.
+CONTAINER_TAGS = frozenset({"g", "use", "symbol", "a", "svg"})
+
+
+def is_grouped_artwork(elements: list[ET.Element], threshold: float = 0.5) -> bool:
+    """True when the artwork groups its icons rather than drawing loose shapes.
+
+    A sheet of `<g>` elements is a designer's icon set: each group is an icon,
+    and its internal pieces (the several drums of a drum kit) must stay
+    together. A sheet of bare paths is usually hand-drawn, where a single icon
+    is several disconnected strokes that have to be clustered visually instead.
+    Grouping the first by pixels would merge neighbours; splitting the second
+    by structure would shatter every icon into strokes.
+    """
+    if not elements:
+        return False
+    containers = sum(1 for element in elements if element.tag.split("}")[-1] in CONTAINER_TAGS)
+    return containers / len(elements) >= threshold
+
+
+def find_icon_elements(root: ET.Element, boxes: dict[str, Box]) -> list[ET.Element]:
+    """Return the elements that represent individual icons.
+
+    Descends through wrapper groups -- a `<g>` holding a single child is a
+    layer, not an icon -- and stops at the first level that holds several
+    drawables. That level is the artwork's own idea of "one icon per item", so
+    a drum kit made of nineteen separate paths stays one icon instead of
+    nineteen, without any tuning.
+    """
+    level = [child for child in root if is_drawable(child) and child.attrib.get("id") in boxes]
+    # Unwrap successive single-child layers until real multiplicity appears.
+    while len(level) == 1:
+        deeper = [child for child in level[0] if is_drawable(child) and child.attrib.get("id") in boxes]
+        if not deeper:
+            break
+        level = deeper
+    return level
 
 
 def query_svg_boxes(svg_path: Path) -> dict[str, Box]:
@@ -106,8 +178,6 @@ def query_svg_boxes(svg_path: Path) -> dict[str, Box]:
         if len(parts) != 5:
             continue
         shape_id, x, y, w, h = parts
-        if shape_id == "Layer_1":
-            continue
         boxes[shape_id] = Box(
             int(math.floor(float(x))),
             int(math.floor(float(y))),
@@ -196,7 +266,12 @@ def _is_tag(element: ET.Element, name: str) -> bool:
 # --- writing fragments ----------------------------------------------------
 
 def build_svg_fragment(
-    source_root: ET.Element, children: list[ET.Element], bounds: Box, padding: int, output_path: Path
+    source_root: ET.Element,
+    children: list[ET.Element],
+    bounds: Box,
+    padding: int,
+    output_path: Path,
+    parents: dict[ET.Element, ET.Element] | None = None,
 ) -> None:
     """Write the selected children into their own document, re-origined.
 
@@ -230,9 +305,13 @@ def build_svg_fragment(
     dy = padding - bounds.y
     for child in children:
         node = deepcopy(child)
-        existing_transform = node.attrib.get("transform", "").strip()
-        translate = f"translate({dx} {dy})"
-        node.set("transform", f"{translate} {existing_transform}".strip())
+        # translate(local frame) · ancestors' transforms · the element's own.
+        # Ancestors matter when the icon was lifted out of a layer group: its
+        # queried bounds already include their transforms.
+        inherited = ancestor_transform(child, parents) if parents else ""
+        own = node.attrib.get("transform", "").strip()
+        combined = " ".join(part for part in (f"translate({dx} {dy})", inherited, own) if part)
+        node.set("transform", combined)
         fragment.append(node)
     ET.ElementTree(fragment).write(output_path, encoding="utf-8", xml_declaration=True)
 

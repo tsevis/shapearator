@@ -56,10 +56,13 @@ from .semantic_naming import (
     slugify,
 )
 from .svg_ops import (
+    build_parent_map,
     build_svg_fragment,
     ensure_element_ids,
     export_svg_to_png,
+    find_icon_elements,
     inject_svg_metadata,
+    is_grouped_artwork,
     normalize_svg_to_canvas,
     parse_viewbox,
     query_svg_boxes,
@@ -81,7 +84,7 @@ __all__ = [
     "slugify",
 ]
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.4.2"
 
 
 def _relocate_icon(icon: ExtractedIcon, staging: ExportStaging) -> ExtractedIcon:
@@ -328,8 +331,23 @@ class IconExtractor:
         view_box = parse_viewbox(root)
         ensure_element_ids(root)
 
-        element_boxes, raster_groups, raster_shape = self._measure_svg_source(tree, root)
-        grouped_items = self._group_svg_children(root, element_boxes, raster_groups, raster_shape, view_box)
+        parents = build_parent_map(root)
+        element_boxes = self._query_element_boxes(tree)
+
+        candidates = find_icon_elements(root, element_boxes)
+        if is_grouped_artwork(candidates):
+            # The artwork says which pieces belong together, so take it at its
+            # word: one group per icon, no detection tuning involved.
+            grouped_items = [
+                (element_boxes[element.attrib["id"]], [element]) for element in candidates
+            ]
+        else:
+            # Loose shapes, not groups -- a hand-drawn sheet where one icon is
+            # several separate strokes. Those have to be clustered visually.
+            raster_groups, raster_shape = self._detect_raster_groups(tree)
+            grouped_items = self._group_svg_children(
+                candidates, element_boxes, raster_groups, raster_shape, view_box
+            )
 
         self._emit_progress(progress_callback, "detect", len(grouped_items), len(grouped_items), f"Detected {len(grouped_items)} icons")
         canvas_size = self._canvas_size()
@@ -351,6 +369,7 @@ class IconExtractor:
                     formats=formats,
                     canvas_size=canvas_size,
                     uniform_scale=uniform_scale,
+                    parents=parents,
                 )
             )
             self._emit_progress(progress_callback, "export", index, len(grouped_items), f"Exporting icon {index} of {len(grouped_items)}")
@@ -358,15 +377,19 @@ class IconExtractor:
         self._prune_empty_dirs(output_dir, formats)
         return icons
 
-    def _measure_svg_source(
-        self, tree: ET.ElementTree, root: ET.Element
-    ) -> tuple[dict[str, Box], list[Box], tuple[int, int]]:
-        """Query per-element bounds and detect visual groupings on a raster proof."""
+    def _query_element_boxes(self, tree: ET.ElementTree) -> dict[str, Box]:
+        """Ask Inkscape for the rendered bounds of every identified element."""
+        with tempfile.TemporaryDirectory(prefix="shapearator_svg_") as temp_dir:
+            temp_source = Path(temp_dir) / "source.svg"
+            tree.write(temp_source, encoding="utf-8", xml_declaration=True)
+            return query_svg_boxes(temp_source)
+
+    def _detect_raster_groups(self, tree: ET.ElementTree) -> tuple[list[Box], tuple[int, int]]:
+        """Detect visual groupings on a rasterized proof of the whole sheet."""
         with tempfile.TemporaryDirectory(prefix="shapearator_svg_") as temp_dir:
             temp_source = Path(temp_dir) / "source.svg"
             temp_raster = Path(temp_dir) / "source.png"
             tree.write(temp_source, encoding="utf-8", xml_declaration=True)
-            element_boxes = query_svg_boxes(temp_source)
             render_svg_to_png(temp_source, temp_raster)
             raster_gray = cv2.imread(str(temp_raster), cv2.IMREAD_GRAYSCALE)
             if raster_gray is None:
@@ -376,22 +399,22 @@ class IconExtractor:
                 tighten_box(raster_binary, box)
                 for box in detect_icon_boxes(raster_binary, self.settings.min_area, max(7, self.settings.merge_gap - 2))
             ]
-            return element_boxes, raster_groups, (raster_gray.shape[1], raster_gray.shape[0])
+            return raster_groups, (raster_gray.shape[1], raster_gray.shape[0])
 
     def _group_svg_children(
         self,
-        root: ET.Element,
+        drawable_children: list[ET.Element],
         element_boxes: dict[str, Box],
         raster_groups: list[Box],
         raster_shape: tuple[int, int],
         view_box: tuple[float, float, float, float],
     ) -> list[tuple[Box, list[ET.Element]]]:
-        """Assign each drawable element to the raster group that contains it."""
-        drawable_children = [
-            child
-            for child in root
-            if isinstance(child.tag, str) and not child.tag.endswith("defs") and child.attrib.get("id") in element_boxes
-        ]
+        """Assign each drawable element to the raster group that contains it.
+
+        ``drawable_children`` is the level `find_icon_elements` settled on, so
+        this works the same whether the shapes sit at the root or inside a
+        layer group.
+        """
         raster_w, raster_h = raster_shape
         assigned_ids: set[str] = set()
         grouped_items: list[tuple[Box, list[ET.Element]]] = []
@@ -431,6 +454,7 @@ class IconExtractor:
         formats: set[str],
         canvas_size: tuple[int, int],
         uniform_scale: float,
+        parents: dict[ET.Element, ET.Element] | None = None,
     ) -> ExtractedIcon:
         stem = f"icon_{index:03d}"
         outputs: dict[str, Path] = {}
@@ -440,7 +464,7 @@ class IconExtractor:
 
         if "svg" in formats or wants_bitmap:
             raw_svg_path.parent.mkdir(parents=True, exist_ok=True)
-            build_svg_fragment(root, children, box, self.settings.padding, raw_svg_path)
+            build_svg_fragment(root, children, box, self.settings.padding, raw_svg_path, parents)
             if "svg" in formats:
                 final_svg_path = output_dir / "svg" / f"{stem}.svg"
                 final_svg_path.parent.mkdir(parents=True, exist_ok=True)
