@@ -4,6 +4,7 @@ __pycache__/
 logs/
 _work_png/
 _work_svg/
+.shapearator-staging/
 models/
 config/settings.json
 config/setup_state.json

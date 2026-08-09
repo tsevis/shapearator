@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # imported for typing only; export_commit imports nothing from here
+    from .export_commit import CommitReport
 
 # Per-icon semantic naming outcome.
 NAMING_NOT_REQUESTED = "not_requested"  # naming was off, or the run was downgraded
@@ -62,6 +66,7 @@ class ExtractionResult:
     provider_summary: str
     naming: NamingSummary = field(default_factory=NamingSummary)
     warnings: tuple[str, ...] = ()
+    commit: "CommitReport | None" = None
 
 
 @dataclass(frozen=True)

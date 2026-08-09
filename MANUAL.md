@@ -152,6 +152,16 @@ Basic shape:
 python shapearator.py INPUT --output-dir OUTPUT [options]
 ```
 
+### Reusing an output folder
+
+Each run is staged and published only if every step succeeds; a failure leaves the
+previous export untouched. `.shapearator-manifest.json` in the output folder lists
+what the last run wrote, and only those files are replaced on the next run.
+
+A folder with no manifest is treated as yours: nothing is deleted, and the run
+reports how many pre-existing files it left in place. Files you add yourself are
+never tracked and never removed.
+
 ### Core options
 
 - `--output-dir`

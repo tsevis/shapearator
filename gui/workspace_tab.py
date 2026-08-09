@@ -416,6 +416,8 @@ class WorkspaceTab(ttk.Frame):
         self.progress_label_var.set(f"Done. Exported {len(result.icons)} icons.")
 
         status = f"Extracted {len(result.icons)} icons to {result.output_dir}"
+        if result.commit is not None and result.commit.replaced:
+            status += f"  |  replaced {result.commit.replaced} files from the previous run"
         if result.naming.requested:
             status += f"  |  {result.naming.describe()}"
         self.status_var.set(status)

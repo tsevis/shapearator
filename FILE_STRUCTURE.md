@@ -99,6 +99,7 @@ Extraction engine:
 
 - `extractor.py`: pipeline orchestration — `IconExtractor`, metadata generation
 - `semantic_naming.py`: the pre-export backend gate (`check_backend_ready`), per-icon labeling and renaming with rollback, and the naming summary
+- `export_commit.py`: staged exports and the run manifest — publishes a run only once every step succeeds, and replaces only the files the manifest lists
 - `extraction_types.py`: `ExtractedIcon`, `NamingSummary`, `ExtractionResult`, `ExtractionProgress` — the data passed to the GUI and CLI
 - `geometry.py`: `Box`, foreground masks, icon detection, reading-order sorting, uniform scale
 - `raster_ops.py`: canvas composition, transparency (interior holes preserved), palette and monochrome analysis
@@ -135,6 +136,7 @@ This folder is source code and acts as the application core.
 - `test_svg_ops.py`: viewBox parsing, id assignment, fragment building, canvas normalization, metadata injection
 - `test_semantic_naming.py`: preflight enforcement and downgrade, per-icon naming status, rename rollback, metadata truthfulness
 - `test_svg_definitions.py`: reference scanning, transitive definition resolution, stylesheet retention, and survival through normalization
+- `test_export_commit.py`: stale-output replacement, preservation of untracked files, manifest contents, and rollback on a failed run or commit
 
 Run with `pytest -q` from the repository root.
 
@@ -182,15 +184,21 @@ A chosen output directory contains only the selected export formats plus metadat
 
 ```text
 output-dir/
-  png/       # bitmap PNG exports
-  jpg/       # bitmap JPG exports
-  tiff/      # bitmap TIFF exports
-  svg/       # vector-native or wrapped/traced SVG exports
-  metadata/  # per-icon JSON metadata files
+  png/                          # bitmap PNG exports
+  jpg/                          # bitmap JPG exports
+  tiff/                         # bitmap TIFF exports
+  svg/                          # vector-native or wrapped/traced SVG exports
+  metadata/                     # per-icon JSON metadata files
+  .shapearator-manifest.json    # what the last run wrote; the only files a later run replaces
 ```
 
-During extraction the engine may create intermediate `_work_png/` and `_work_svg/`
-folders inside the output directory; it cleans them up when no longer needed.
+A run is built inside a `.shapearator-staging/` directory in the output folder and
+moved into place only once every step succeeds, so a failure leaves the previous
+export intact. Intermediate `_work_png/` and `_work_svg/` folders live in staging
+and are discarded with it — they never reach the output directory.
+
+Only the directories above are ever written or removed. Files the user places in
+the output folder are not tracked by the manifest and are never deleted.
 
 ## Source vs Generated Content
 

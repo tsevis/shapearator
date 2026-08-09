@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image
 
 from .config_store import AppSettings
+from .export_commit import ExportStaging
 from .extraction_types import (
     NAMING_NAMED,
     ExtractedIcon,
@@ -82,6 +83,16 @@ __all__ = [
 APP_VERSION = "0.3.2"
 
 
+def _relocate_icon(icon: ExtractedIcon, staging: ExportStaging) -> ExtractedIcon:
+    """Point an icon's paths at their committed location instead of staging."""
+    return replace(
+        icon,
+        outputs={fmt: staging.final_path(path) for fmt, path in icon.outputs.items()},
+        preview_path=staging.final_path(icon.preview_path) if icon.preview_path else None,
+        metadata_path=staging.final_path(icon.metadata_path) if icon.metadata_path else None,
+    )
+
+
 def extract_icon_palette(preview_path: Path | None, svg_path: Path | None) -> tuple[str | None, list[str]]:
     """Sample an icon's colours, rendering the SVG only if there is no bitmap."""
     if preview_path is not None and preview_path.exists():
@@ -127,23 +138,30 @@ class IconExtractor:
         if readiness.result is not None:
             self._emit_progress(progress_callback, "preflight", 1, 1, readiness.result.message)
 
-        output_dir.mkdir(parents=True, exist_ok=True)
-        self._emit_progress(progress_callback, "prepare", 0, 1, "Loading source sheet")
-        if suffix == ".png":
-            icons = self._extract_from_png(input_path, output_dir, formats, progress_callback)
-        else:
-            icons = self._extract_from_svg(input_path, output_dir, formats, progress_callback)
+        with ExportStaging(output_dir) as staging:
+            staged = staging.staging_dir
+            self._emit_progress(progress_callback, "prepare", 0, 1, "Loading source sheet")
+            if suffix == ".png":
+                icons = self._extract_from_png(input_path, staged, formats, progress_callback)
+            else:
+                icons = self._extract_from_svg(input_path, staged, formats, progress_callback)
 
-        if readiness.proceed:
-            self._emit_progress(progress_callback, "naming", 0, max(1, len(icons)), "Naming icons with local model")
-            icons, naming, naming_warnings = apply_semantic_names(self.settings, icons, progress_callback)
-            warnings += naming_warnings
-        else:
-            icons = mark_all_unnamed(icons)
-            naming = NamingSummary()
+            if readiness.proceed:
+                self._emit_progress(progress_callback, "naming", 0, max(1, len(icons)), "Naming icons with local model")
+                icons, naming, naming_warnings = apply_semantic_names(self.settings, icons, progress_callback)
+                warnings += naming_warnings
+            else:
+                icons = mark_all_unnamed(icons)
+                naming = NamingSummary()
 
-        self._emit_progress(progress_callback, "metadata", 0, max(1, len(icons)), "Writing metadata")
-        icons = self._write_metadata_files(icons, output_dir, input_path, progress_callback)
+            self._emit_progress(progress_callback, "metadata", 0, max(1, len(icons)), "Writing metadata")
+            icons = self._write_metadata_files(icons, staged, input_path, staging, progress_callback)
+
+            self._emit_progress(progress_callback, "commit", 0, 1, "Publishing export")
+            report = staging.commit(input_path, formats, len(icons), APP_VERSION)
+            icons = [_relocate_icon(icon, staging) for icon in icons]
+            warnings += report.warnings
+            self._emit_progress(progress_callback, "commit", 1, 1, f"Published {report.written} files")
 
         return ExtractionResult(
             input_path=input_path,
@@ -152,6 +170,7 @@ class IconExtractor:
             provider_summary=self._provider_summary(),
             naming=naming,
             warnings=warnings,
+            commit=report,
         )
 
     def _provider_summary(self) -> str:
@@ -178,6 +197,7 @@ class IconExtractor:
         icons: list[ExtractedIcon],
         output_dir: Path,
         input_path: Path,
+        staging: ExportStaging,
         progress_callback: Callable[[ExtractionProgress], None] | None,
     ) -> list[ExtractedIcon]:
         metadata_dir = output_dir / "metadata"
@@ -185,7 +205,7 @@ class IconExtractor:
         exported_at = datetime.now(timezone.utc).isoformat()
         written: list[ExtractedIcon] = []
         for index, icon in enumerate(icons, start=1):
-            payload = self._build_metadata_payload(icon, input_path, exported_at)
+            payload = self._build_metadata_payload(icon, input_path, exported_at, staging)
             metadata_path = metadata_dir / f"{icon.stem}.json"
             metadata_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
             if "svg" in icon.outputs:
@@ -194,12 +214,17 @@ class IconExtractor:
             self._emit_progress(progress_callback, "metadata", index, len(icons), f"Writing metadata {index} of {len(icons)}")
         return written
 
-    def _build_metadata_payload(self, icon: ExtractedIcon, input_path: Path, exported_at: str) -> dict:
+    def _build_metadata_payload(
+        self, icon: ExtractedIcon, input_path: Path, exported_at: str, staging: ExportStaging
+    ) -> dict:
         """Describe one icon, distinguishing what was asked for from what happened.
 
         ``requested_provider``/``requested_model`` record the configuration;
         ``model_used`` is populated only for an icon a model actually named, so
         a failed or skipped labeling pass can never read as a successful one.
+
+        Exported paths are recorded where they will live after the commit, not
+        where they are staged.
         """
         dominant_color, palette = extract_icon_palette(icon.preview_path, icon.outputs.get("svg"))
         was_named = icon.naming_status == NAMING_NAMED
@@ -222,7 +247,7 @@ class IconExtractor:
             "model_used": active_vision_model(self.settings) if was_named else None,
             "naming_status": icon.naming_status,
             "naming_error": icon.naming_error,
-            "formats": {fmt: str(path) for fmt, path in sorted(icon.outputs.items())},
+            "formats": {fmt: str(staging.final_path(path)) for fmt, path in sorted(icon.outputs.items())},
             "canvas_mode": self.settings.canvas_mode,
             "dominant_color": dominant_color,
             "palette": palette,

@@ -285,7 +285,26 @@ exports/
   tiff/
   svg/
   metadata/
+  .shapearator-manifest.json
 ```
+
+### Reusing an output folder
+
+A run is staged inside the output folder and moved into place only after
+extraction, naming, and metadata have all succeeded. If anything fails, the
+staged work is discarded and the previous export is left exactly as it was.
+
+`.shapearator-manifest.json` records every file the last run wrote, and it is the
+only thing a later run will delete:
+
+- **No manifest** (a folder Shapearator has not written before): nothing is
+  deleted. Your own files stay, and the run reports how many it left in place.
+- **Manifest present**: exactly the files it lists are replaced. A smaller run no
+  longer leaves the previous run's extra icons behind, and a format you drop
+  between runs is cleaned up.
+
+Files you add to the folder yourself are never tracked and never removed. Delete
+the manifest and Shapearator forgets the folder, reverting to add-only behaviour.
 
 Each metadata JSON includes exported paths by format, source bounds and size, output
 canvas size, provider and model details, vector export mode, dominant color and

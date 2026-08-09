@@ -336,6 +336,13 @@ def print_completion(result: ExtractionResult) -> None:
     print(f"Completed: extracted {len(result.icons)} icons")
     if result.naming.requested:
         print(result.naming.describe())
+    if result.commit is not None:
+        detail = f"Export: {result.commit.written} files written"
+        if result.commit.replaced:
+            detail += f", {result.commit.replaced} replaced from the previous run"
+        if result.commit.preserved:
+            detail += f", {result.commit.preserved} unmanaged file(s) left untouched"
+        print(detail)
     for warning in result.warnings:
         print(f"Warning: {warning}")
     print(f"Output written to: {result.output_dir.resolve()}")
