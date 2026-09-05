@@ -135,6 +135,7 @@ a plain run stays silent.
 | `test_bootstrap_and_setup.py` | catalog, retry/backoff, preflight, downloader, first-run flow |
 | `test_llamacpp_server.py` | health probing and its fallback, launch arguments, the wait loop, terminate/kill |
 | `test_model_registry.py` | Ollama list parsing, the llama.cpp models endpoint, directory scanning, recommendation ranking |
+| `test_extractor_units.py` | drawable grouping, canvas clamping, vector-mode recording, working-directory pruning |
 | `test_detection_presets.py` | the preset table, lookup, immutability, and naming the current values |
 | `test_request_validation.py` | each pre-flight rule and the order they are reported in |
 | `test_run_summary.py` | provider wording, result status lines, icon captions |
