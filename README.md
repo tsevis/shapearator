@@ -317,7 +317,7 @@ other settings.
 ## Development
 
 ```bash
-pytest -q                                    # 477 tests, fully offline
+pytest -q                                    # 507 tests, fully offline
 pytest --cov                                 # engine coverage; fails under 80%
 pytest -m gui                                # 22 more; opens real windows
 ruff check .
