@@ -113,11 +113,16 @@ Branch coverage is measured over `services/` alone and must stay at or above
 80%; `pytest --cov` enforces it. See the README's Development section for why the
 bar is scoped to the engine.
 
-The suite also opens no windows. The `gui/` tests cover module-level tables and
-static methods, and stand in for widgets with duck-typed objects, so nothing
-constructs a `Tk` root. A test that ever does need a real window must carry the
-`gui` marker registered in `pyproject.toml`; `addopts` excludes that marker, so
-a plain run stays silent.
+A plain run opens no windows. Most `gui/` tests cover module-level tables and
+static methods, standing in for widgets with duck-typed objects, so nothing
+constructs a `Tk` root.
+
+The window tests that do exist are opt-in, and opting in is not left to
+anyone's memory: asking for the `gui_root` fixture is what marks a test `gui`,
+via a `pytest_collection_modifyitems` hook in `tests/conftest.py`, and
+`addopts` in `pyproject.toml` deselects that marker. A new window test inherits
+the exclusion by construction rather than by someone remembering a decorator.
+Run them deliberately with `pytest -m gui`, and expect windows to appear.
 
 | File | Covers |
 | --- | --- |
@@ -136,6 +141,8 @@ a plain run stays silent.
 | `test_llamacpp_server.py` | health probing and its fallback, launch arguments, the wait loop, terminate/kill |
 | `test_model_registry.py` | Ollama list parsing, the llama.cpp models endpoint, directory scanning, recommendation ranking |
 | `test_extractor_units.py` | drawable grouping, canvas clamping, vector-mode recording, working-directory pruning |
+| `test_gui_windows.py` | real widgets: variables built from settings, presets reaching the spinboxes, results filling the tree (`gui`-marked) |
+| `conftest.py` | the `gui_root` fixture and the hook that marks anything using it |
 | `test_detection_presets.py` | the preset table, lookup, immutability, and naming the current values |
 | `test_request_validation.py` | each pre-flight rule and the order they are reported in |
 | `test_run_summary.py` | provider wording, result status lines, icon captions |

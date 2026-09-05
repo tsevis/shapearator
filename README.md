@@ -319,8 +319,13 @@ other settings.
 ```bash
 pytest -q                                    # 461 tests, fully offline
 pytest --cov                                 # engine coverage; fails under 80%
+pytest -m gui                                # 22 more; opens real windows
 ruff check .
 ```
+
+`pytest -m gui` is the only command here that puts anything on screen. Those
+tests build real Tk windows to check the wiring that only exists once widgets
+are real, and they are excluded from every other run — see below.
 
 The suite mocks every network call and subprocess, so it needs neither a model
 backend nor Inkscape.
