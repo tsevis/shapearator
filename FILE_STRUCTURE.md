@@ -141,6 +141,7 @@ Run them deliberately with `pytest -m gui`, and expect windows to appear.
 | `test_llamacpp_server.py` | health probing and its fallback, launch arguments, the wait loop, terminate/kill |
 | `test_model_registry.py` | Ollama list parsing, the llama.cpp models endpoint, directory scanning, recommendation ranking |
 | `test_extractor_units.py` | drawable grouping, canvas clamping, vector-mode recording, working-directory pruning |
+| `test_extractor_svg_pipeline.py` | the SVG run end to end with only Inkscape faked: grouped vs loose, format selection, cleanup, progress |
 | `test_gui_windows.py` | real widgets: variables built from settings, presets reaching the spinboxes, results filling the tree (`gui`-marked) |
 | `conftest.py` | the `gui_root` fixture and the hook that marks anything using it |
 | `test_detection_presets.py` | the preset table, lookup, immutability, and naming the current values |
