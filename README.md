@@ -2,7 +2,7 @@
 
 Created by Charis Tsevis.
 
-Current version: `0.4.3`
+Current version: `0.4.4`
 
 ![Shapearator workspace](docs/readme/workspace.webp)
 
