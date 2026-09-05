@@ -10,3 +10,17 @@ addopts = ["-m", "not gui"]
 markers = [
     "gui: opens real windows; excluded from the default run",
 ]
+
+# Coverage is measured over services/ alone, and that is deliberate. services/
+# is the engine — it holds every behaviour the GUI, the CLI and MacShapearator
+# share, and all of it can be tested offline. gui/ is the other kind of code:
+# past the logic already extracted into services/, what remains is widget
+# layout, dialogs and thread plumbing, reachable only by constructing real
+# windows, which the `gui` marker above keeps out of a default run. Counting it
+# would move the number without telling anyone anything about the engine.
+[tool.coverage.run]
+source = ["services"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

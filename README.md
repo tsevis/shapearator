@@ -318,12 +318,20 @@ other settings.
 
 ```bash
 pytest -q                                    # 363 tests, fully offline
-pytest --cov=services --cov-report=term-missing
-ruff check services tests
+pytest --cov                                 # engine coverage; fails under 80%
+ruff check .
 ```
 
 The suite mocks every network call and subprocess, so it needs neither a model
 backend nor Inkscape.
+
+`pytest --cov` measures `services/` and exits non-zero below 80%. The bar is
+the engine's, not the whole tree's: `services/` holds everything the GUI, the
+CLI and MacShapearator share, and all of it is testable offline. What is left
+in `gui/` once its logic has moved into `services/` is widget layout, dialogs
+and thread plumbing — reachable only by opening real windows, which the suite
+will not do. Counting those lines would move the percentage without saying
+anything about the engine.
 
 ### Repository map
 
