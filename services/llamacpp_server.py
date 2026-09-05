@@ -42,8 +42,6 @@ class LlamaCppServerManager:
 
     def __init__(self) -> None:
         self._process: subprocess.Popen | None = None
-        # Safety net: never leave an app-launched server orphaned on exit.
-        atexit.register(self.stop)
 
     @property
     def is_running(self) -> bool:
@@ -107,6 +105,12 @@ class LlamaCppServerManager:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        # Safety net: never leave an app-launched server orphaned on exit.
+        # Registered here rather than in __init__ because atexit holds a strong
+        # reference to the handler, which would pin every manager ever built
+        # for the life of the process. Held only while we own a subprocess, and
+        # dropped again by stop().
+        atexit.register(self.stop)
         if not self._wait_until_healthy(base_url, wait_seconds):
             self.stop()
             raise RuntimeError("llama-server did not become healthy in time.")
@@ -131,3 +135,4 @@ class LlamaCppServerManager:
             except subprocess.TimeoutExpired:
                 self._process.kill()
         self._process = None
+        atexit.unregister(self.stop)

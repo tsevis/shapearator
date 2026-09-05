@@ -317,7 +317,7 @@ other settings.
 ## Development
 
 ```bash
-pytest -q                                    # 392 tests, fully offline
+pytest -q                                    # 397 tests, fully offline
 pytest --cov                                 # engine coverage; fails under 80%
 ruff check .
 ```

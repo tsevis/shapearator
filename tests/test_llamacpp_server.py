@@ -11,7 +11,9 @@ on a manager that launched nothing returns immediately.
 """
 from __future__ import annotations
 
+import gc
 import subprocess
+import weakref
 
 import pytest
 
@@ -364,12 +366,89 @@ def test_stopping_twice_is_harmless():
 
 
 # --- the exit safety net --------------------------------------------------
+#
+# These patch the `atexit` name inside the module under test rather than the
+# shared atexit module itself, so pytest's own registrations are untouched.
 
-def test_a_new_manager_registers_its_own_shutdown(monkeypatch):
-    """An app-launched server must never outlive the app."""
-    registered = []
-    monkeypatch.setattr(ls.atexit, "register", registered.append)
 
+class FakeAtexit:
+    """Records registrations the way atexit does, matching on equality."""
+
+    def __init__(self):
+        self.handlers = []
+
+    def register(self, func):
+        self.handlers.append(func)
+        return func
+
+    def unregister(self, func):
+        self.handlers = [h for h in self.handlers if h != func]
+
+
+@pytest.fixture
+def registry(monkeypatch):
+    fake = FakeAtexit()
+    monkeypatch.setattr(ls, "atexit", fake)
+    return fake
+
+
+def test_a_manager_that_owns_no_process_registers_nothing(registry):
+    """A handler per manager ever built would pin them all for the run."""
+    LlamaCppServerManager()
+    assert registry.handlers == []
+
+
+def test_launching_a_server_registers_its_shutdown(monkeypatch, registry):
+    launched(monkeypatch)
     manager = LlamaCppServerManager()
 
-    assert registered == [manager.stop]
+    manager._launch(["-hf", "r:q"], "http://127.0.0.1:8080", context_size=4096, wait_seconds=1)
+
+    assert registry.handlers == [manager.stop]
+
+
+def test_reusing_someone_elses_server_registers_nothing(monkeypatch, registry):
+    """We did not start it, so it is not ours to shut down."""
+    launched(monkeypatch, healthy_before=True)
+
+    LlamaCppServerManager()._launch(
+        ["-hf", "r:q"], "http://127.0.0.1:8080", context_size=4096, wait_seconds=1
+    )
+
+    assert registry.handlers == []
+
+
+def test_stopping_a_server_removes_its_shutdown(monkeypatch, registry):
+    launched(monkeypatch)
+    manager = LlamaCppServerManager()
+    manager._launch(["-hf", "r:q"], "http://127.0.0.1:8080", context_size=4096, wait_seconds=1)
+
+    manager.stop()
+
+    assert registry.handlers == []
+
+
+def test_a_failed_launch_leaves_no_handler_behind(monkeypatch, registry):
+    launched(monkeypatch, becomes_healthy=False)
+    monkeypatch.setattr(ls.time, "time", iter([0.0, 0.0, 99.0]).__next__)
+
+    with pytest.raises(RuntimeError):
+        LlamaCppServerManager()._launch(
+            ["-hf", "r:q"], "http://127.0.0.1:8080", context_size=4096, wait_seconds=1
+        )
+
+    assert registry.handlers == []
+
+
+def test_a_stopped_manager_can_be_collected(monkeypatch, registry):
+    """The point of all of the above: managers must not accumulate."""
+    launched(monkeypatch)
+    manager = LlamaCppServerManager()
+    manager._launch(["-hf", "r:q"], "http://127.0.0.1:8080", context_size=4096, wait_seconds=1)
+    manager.stop()
+
+    reference = weakref.ref(manager)
+    del manager
+    gc.collect()
+
+    assert reference() is None
