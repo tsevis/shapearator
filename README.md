@@ -317,7 +317,7 @@ other settings.
 ## Development
 
 ```bash
-pytest -q                                    # 289 tests, fully offline
+pytest -q                                    # 315 tests, fully offline
 pytest --cov=services --cov-report=term-missing
 ruff check services tests
 ```

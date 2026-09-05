@@ -17,7 +17,8 @@ shapearator/
   models/            # downloaded llama.cpp GGUF weights (gitignored)
   docs/              # committed sample sheets and screenshots (see below)
   logs/              # generated run logs
-  requirements.txt
+  requirements.txt   # runtime dependencies
+  pyproject.toml     # pytest configuration
   README.md  MANUAL.md  FILE_STRUCTURE.md  LICENSE
 ```
 
@@ -95,6 +96,12 @@ No module here imports from `gui/`.
 Fully offline: network calls and subprocesses are mocked, so neither a model
 backend nor Inkscape is required. Run with `pytest -q`.
 
+The suite also opens no windows. The `gui/` tests cover module-level tables and
+static methods, and stand in for widgets with duck-typed objects, so nothing
+constructs a `Tk` root. A test that ever does need a real window must carry the
+`gui` marker registered in `pyproject.toml`; `addopts` excludes that marker, so
+a plain run stays silent.
+
 | File | Covers |
 | --- | --- |
 | `test_settings_schema.py` | per-field coercion, unknown/malformed config recovery, CLI/schema parity |
@@ -109,6 +116,9 @@ backend nor Inkscape is required. Run with `pytest -q`.
 | `test_metadata_privacy.py` | exported metadata discloses no local filesystem paths |
 | `test_provider_migration.py` | shared vision helpers, factory selection, both clients, CLI validation |
 | `test_bootstrap_and_setup.py` | catalog, retry/backoff, preflight, downloader, first-run flow |
+| `test_gui_labels.py` | GUI label maps against the schema, and its preset table against the CLI's |
+| `test_gui_settings_tab.py` | the model-recommendation text: selected vs recommended, and missing either |
+| `test_gui_theme.py` | master-chain walking, nearest themable host, cycles, and failing hosts |
 
 ## Runtime state
 
@@ -141,7 +151,8 @@ output folder are not tracked by the manifest and are never deleted.
 ## Source vs generated
 
 **Source, maintained by hand:** `shapearator.py`, `main.py`, `run.sh`,
-`services/`, `gui/`, `tests/`, `requirements.txt`, and the markdown documents.
+`services/`, `gui/`, `tests/`, `requirements.txt`, `pyproject.toml`, and the
+markdown documents.
 
 **Sample assets:** `docs/base.png`, `docs/base.svg`, `docs/base.ai`, and
 `docs/readme/` screenshots. These four entries are the whole of the committed

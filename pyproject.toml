@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Tests run on a desktop, inside a live GUI session. Anything that constructs a
+# real Tk window would put it on screen in front of whatever the user is doing,
+# so a window-opening test must be marked `gui` and is excluded from a plain
+# `pytest` run. Nothing in the suite carries the marker today: the GUI tests
+# cover module-level logic and duck-typed stand-ins, and build no widgets.
+addopts = ["-m", "not gui"]
+markers = [
+    "gui: opens real windows; excluded from the default run",
+]
