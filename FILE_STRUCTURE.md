@@ -133,6 +133,7 @@ a plain run stays silent.
 | `test_metadata_privacy.py` | exported metadata discloses no local filesystem paths |
 | `test_provider_migration.py` | shared vision helpers, factory selection, both clients, CLI validation |
 | `test_bootstrap_and_setup.py` | catalog, retry/backoff, preflight, downloader, first-run flow |
+| `test_llamacpp_server.py` | health probing and its fallback, launch arguments, the wait loop, terminate/kill |
 | `test_detection_presets.py` | the preset table, lookup, immutability, and naming the current values |
 | `test_request_validation.py` | each pre-flight rule and the order they are reported in |
 | `test_run_summary.py` | provider wording, result status lines, icon captions |
