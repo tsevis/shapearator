@@ -66,6 +66,19 @@ No module here imports from `gui/`.
 | `export_commit.py` | staged exports and the run manifest: publishes a run only once every step succeeds, and replaces only the files the manifest lists |
 | `metadata_paths.py` | reduces paths and error text bound for exported files to a portable, non-identifying form |
 
+### Shared interface logic
+
+Logic the GUI and the CLI both need, kept out of the widget classes so it is
+testable without opening a window — and so a native front end inherits the same
+behaviour rather than reimplementing it.
+
+| Module | Role |
+| --- | --- |
+| `detection_presets.py` | the four detection presets and the lookup both interfaces use; previously declared separately in each |
+| `request_validation.py` | the pre-flight rules for a run, returned as a titled problem rather than raised, so each interface presents it in its own idiom |
+| `run_summary.py` | display text for a provider, a finished run, and an icon caption |
+| `preview_cache.py` | picking a bitmap to preview for an icon, rendering and caching one when only an SVG exists |
+
 ### Naming and models
 
 | Module | Role |
@@ -116,7 +129,11 @@ a plain run stays silent.
 | `test_metadata_privacy.py` | exported metadata discloses no local filesystem paths |
 | `test_provider_migration.py` | shared vision helpers, factory selection, both clients, CLI validation |
 | `test_bootstrap_and_setup.py` | catalog, retry/backoff, preflight, downloader, first-run flow |
-| `test_gui_labels.py` | GUI label maps against the schema, and its preset table against the CLI's |
+| `test_detection_presets.py` | the preset table, lookup, immutability, and naming the current values |
+| `test_request_validation.py` | each pre-flight rule and the order they are reported in |
+| `test_run_summary.py` | provider wording, result status lines, icon captions |
+| `test_preview_cache.py` | preview selection, caching, and a failing renderer |
+| `test_gui_labels.py` | GUI label maps against the schema, and that no interface re-declares the presets |
 | `test_gui_settings_tab.py` | the model-recommendation text: selected vs recommended, and missing either |
 | `test_gui_theme.py` | master-chain walking, nearest themable host, cycles, and failing hosts |
 
@@ -177,6 +194,9 @@ negation line in `.gitignore`, or `git add -f`.
 | how icons are found in an SVG | `services/svg_ops.py` |
 | detection on raster sheets | `services/geometry.py` |
 | how a run replaces a previous export | `services/export_commit.py` |
+| the detection presets | `services/detection_presets.py` |
+| what makes a run invalid | `services/request_validation.py` |
+| wording shown for a run or an icon | `services/run_summary.py` |
 | naming behaviour or preflight | `services/semantic_naming.py`, `services/vision.py` |
 | recommended models or downloads | `services/model_catalog.py`, `services/model_bootstrap.py` |
 | the settings shape or its validation | `services/settings_schema.py` |

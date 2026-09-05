@@ -1,25 +1,23 @@
-"""The GUI's choice tables must stay in step with the schema and the CLI.
+"""The GUI's label maps must stay in step with the schema.
 
-`gui/workspace_tab.py` keeps its own label maps and its own copy of the
-detection presets. Nothing at runtime forces those to agree with
-`services/settings_schema.py` or with the CLI's table in `shapearator.py`, so
-a value renamed on one side would otherwise drift silently: the GUI would
-offer a mode the schema rejects, or the same preset name would mean different
-numbers depending on which interface you used. These tests are that check.
+`gui/workspace_tab.py` still owns the wording shown against each canvas and
+bitmap mode. Nothing at runtime forces those keys to agree with
+`services/settings_schema.py`, so a mode renamed on one side would otherwise
+drift silently and the GUI would offer a value the schema rejects.
+
+The detection presets are no longer checked for GUI/CLI agreement: both
+interfaces now read `services.detection_presets`, so there is no second copy
+to disagree with. `tests/test_detection_presets.py` covers that module.
 
 No Tk widget is constructed — only module-level constants are read.
 """
 from __future__ import annotations
 
-from shapearator import DETECTION_PRESETS as CLI_PRESETS
-from gui.workspace_tab import (
-    BITMAP_EXPORT_MODE_LABELS,
-    CANVAS_MODE_LABELS,
-    DETECTION_PRESETS as GUI_PRESETS,
-)
+import shapearator
+from gui import workspace_tab
+from gui.workspace_tab import BITMAP_EXPORT_MODE_LABELS, CANVAS_MODE_LABELS
+from services import detection_presets
 from services.settings_schema import BITMAP_EXPORT_MODES, CANVAS_MODES
-
-PRESET_FIELDS = {"padding", "min_area", "merge_gap"}
 
 
 # --- schema parity --------------------------------------------------------
@@ -43,36 +41,15 @@ def test_labels_are_distinguishable_in_a_dropdown():
         assert len(set(labels.values())) == len(labels)
 
 
-# --- CLI parity -----------------------------------------------------------
+# --- one shared preset table ------------------------------------------
 
-def test_the_gui_and_cli_presets_are_the_same_table():
-    assert GUI_PRESETS == CLI_PRESETS
-
-
-def test_the_documented_four_presets_are_all_present():
-    assert set(GUI_PRESETS) == {
-        "Balanced",
-        "Tiny Details",
-        "Loose Sketches",
-        "Bold Shapes",
-    }
+def test_neither_interface_declares_its_own_preset_table():
+    """The duplication these tests used to police is gone; keep it gone."""
+    assert not hasattr(shapearator, "DETECTION_PRESETS")
+    assert not hasattr(workspace_tab, "DETECTION_PRESETS")
 
 
-def test_each_preset_sets_every_detection_field_and_nothing_else():
-    for name, preset in GUI_PRESETS.items():
-        assert set(preset) == PRESET_FIELDS, f"{name} has the wrong fields"
-
-
-def test_detection_values_are_positive_whole_numbers():
-    for name, preset in GUI_PRESETS.items():
-        for field, value in preset.items():
-            assert isinstance(value, int) and not isinstance(value, bool), (
-                f"{name}.{field} is not an int"
-            )
-            assert value > 0, f"{name}.{field} is not positive"
-
-
-def test_presets_are_ordered_as_the_detection_settings_describe_them():
-    """Tiny Details keeps the smallest marks; Bold Shapes ignores the most."""
-    areas = {name: preset["min_area"] for name, preset in GUI_PRESETS.items()}
-    assert areas["Tiny Details"] < areas["Balanced"] < areas["Bold Shapes"]
+def test_both_interfaces_read_the_same_preset_names():
+    assert list(detection_presets.preset_names()) == list(
+        detection_presets.DETECTION_PRESETS
+    )

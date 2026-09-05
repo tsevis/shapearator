@@ -6,27 +6,20 @@ import time
 from pathlib import Path
 
 from services.config_store import AppSettings, ConfigStore
+from services.detection_presets import preset_names, values_for_preset
 from services.extractor import (
     ExtractionProgress,
     ExtractionResult,
     IconExtractor,
     SemanticPreflightError,
 )
+from services.request_validation import validate_extraction_request
 from services.settings_schema import (
     BITMAP_EXPORT_MODES,
     CANVAS_MODES,
     FORMATS,
     PROVIDERS,
 )
-from services.vision import is_local_url
-
-
-DETECTION_PRESETS = {
-    "Balanced": {"padding": 12, "min_area": 200, "merge_gap": 13},
-    "Tiny Details": {"padding": 8, "min_area": 70, "merge_gap": 9},
-    "Loose Sketches": {"padding": 16, "min_area": 140, "merge_gap": 19},
-    "Bold Shapes": {"padding": 14, "min_area": 320, "merge_gap": 15},
-}
 
 # argparse wants lists; the schema module owns the values.
 CANVAS_MODE_CHOICES = list(CANVAS_MODES)
@@ -89,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--detection-preset",
-        choices=list(DETECTION_PRESETS.keys()),
+        choices=list(preset_names()),
         default=None,
         help="Detection preset to seed padding, min-area, and merge-gap.",
     )
@@ -153,12 +146,12 @@ def load_base_settings(use_config: bool) -> AppSettings:
 
 
 def apply_detection_preset(settings: AppSettings, preset_name: str | None) -> None:
-    if not preset_name:
+    preset = values_for_preset(preset_name)
+    if preset is None:
         return
-    preset = DETECTION_PRESETS[preset_name]
-    settings.padding = preset["padding"]
-    settings.min_area = preset["min_area"]
-    settings.merge_gap = preset["merge_gap"]
+    settings.padding = preset.padding
+    settings.min_area = preset.min_area
+    settings.merge_gap = preset.merge_gap
 
 
 def apply_cli_overrides(settings: AppSettings, args: argparse.Namespace, input_path: Path, output_dir: Path) -> AppSettings:
@@ -194,18 +187,10 @@ def apply_cli_overrides(settings: AppSettings, args: argparse.Namespace, input_p
 
 
 def validate_settings(settings: AppSettings, input_path: Path, formats: set[str]) -> None:
-    if not input_path.exists():
-        raise SystemExit(f"Input file not found: {input_path}")
-    if input_path.suffix.lower() not in {".png", ".svg"}:
-        raise SystemExit("Supported inputs are .png and .svg")
-    if not formats:
-        raise SystemExit("At least one export format must be selected.")
-    if settings.output_width <= 0 or settings.output_height <= 0:
-        raise SystemExit("Canvas width and height must be positive integers.")
-    if settings.provider == "ollama" and not is_local_url(settings.ollama_url):
-        raise SystemExit("Ollama provider requires a local endpoint such as http://127.0.0.1:11434.")
-    if settings.provider == "llamacpp" and not is_local_url(settings.llamacpp_url):
-        raise SystemExit("llama.cpp provider requires a local endpoint such as http://127.0.0.1:8080.")
+    """Exit with the first problem the shared rules find, if any."""
+    issue = validate_extraction_request(settings, input_path, formats)
+    if issue is not None:
+        raise SystemExit(issue.message)
 
 
 def describe_detection_origin(args: argparse.Namespace, settings: AppSettings) -> str:

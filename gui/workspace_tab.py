@@ -3,16 +3,30 @@ from __future__ import annotations
 import threading
 import tkinter as tk
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageOps, ImageTk
 
 from services.config_store import AppSettings
+from services.detection_presets import (
+    preset_names,
+    preset_name_for_values,
+    values_for_preset,
+)
 from services.extractor import ExtractionProgress, ExtractionResult, IconExtractor
+from services.preview_cache import resolve_preview_path
+from services.request_validation import validate_extraction_request
+from services.run_summary import (
+    describe_icon,
+    describe_progress_completion,
+    describe_result,
+    format_size,
+    provider_summary,
+)
 from services.semantic_naming import naming_requested
-from services.svg_ops import export_svg_to_png
-from services.vision import PreflightResult, is_local_url, preflight
+from services.vision import PreflightResult, preflight
 
 
 CANVAS_MODE_LABELS = {
@@ -25,14 +39,6 @@ BITMAP_EXPORT_MODE_LABELS = {
     "keep_background": "A. Keep the original background color and fill the full bitmap canvas with it.",
     "transparent_preserve_interior": "B. Export transparent bitmaps while preserving enclosed white or light interior details.",
 }
-
-DETECTION_PRESETS = {
-    "Balanced": {"padding": 12, "min_area": 200, "merge_gap": 13},
-    "Tiny Details": {"padding": 8, "min_area": 70, "merge_gap": 9},
-    "Loose Sketches": {"padding": 16, "min_area": 140, "merge_gap": 19},
-    "Bold Shapes": {"padding": 14, "min_area": 320, "merge_gap": 15},
-}
-
 
 class WorkspaceTab(ttk.Frame):
     def __init__(self, parent: ttk.Notebook, settings: AppSettings, on_settings_commit):
@@ -118,7 +124,7 @@ class WorkspaceTab(ttk.Frame):
         preset_combo = ttk.Combobox(
             detection_card,
             textvariable=self.detection_preset_var,
-            values=list(DETECTION_PRESETS.keys()),
+            values=list(preset_names()),
             state="readonly",
             width=16,
         )
@@ -245,35 +251,25 @@ class WorkspaceTab(ttk.Frame):
         self.provider_summary_var.set(self._provider_summary())
 
     def _provider_summary(self) -> str:
-        if self.settings.provider == "ollama":
-            return f"Active provider: Ollama local ({self.settings.ollama_model})"
-        if self.settings.provider == "llamacpp":
-            return f"Active provider: llama.cpp local ({self.settings.llamacpp_model or 'loaded model'})"
-        if self.settings.provider == "directory":
-            model_name = self.settings.local_model_name or "directory catalog"
-            return f"Active provider: Local directory ({model_name})"
-        return "Active provider: Geometry-only local extraction"
+        return provider_summary(self.settings)
 
     def _update_canvas_hint(self) -> None:
         self.canvas_hint_var.set(CANVAS_MODE_LABELS.get(self.canvas_mode_var.get(), ""))
 
     def _preset_name_for_values(self) -> str:
-        for name, preset in DETECTION_PRESETS.items():
-            if (
-                preset["padding"] == self.padding_var.get()
-                and preset["min_area"] == self.min_area_var.get()
-                and preset["merge_gap"] == self.merge_gap_var.get()
-            ):
-                return name
-        return "Balanced"
+        return preset_name_for_values(
+            self.padding_var.get(),
+            self.min_area_var.get(),
+            self.merge_gap_var.get(),
+        )
 
     def _apply_detection_preset(self, _event=None) -> None:
-        preset = DETECTION_PRESETS.get(self.detection_preset_var.get())
+        preset = values_for_preset(self.detection_preset_var.get())
         if preset is None:
             return
-        self.padding_var.set(preset["padding"])
-        self.min_area_var.set(preset["min_area"])
-        self.merge_gap_var.set(preset["merge_gap"])
+        self.padding_var.set(preset.padding)
+        self.min_area_var.set(preset.min_area)
+        self.merge_gap_var.set(preset.merge_gap)
 
     def _browse_input(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Supported", "*.png *.svg"), ("PNG", "*.png"), ("SVG", "*.svg")])
@@ -301,20 +297,16 @@ class WorkspaceTab(ttk.Frame):
         formats = self._selected_formats()
         input_path = Path(self.input_var.get().strip())
         output_dir = Path(self.output_var.get().strip())
-        if not input_path.exists():
-            messagebox.showerror("Missing Input", "Choose a valid PNG or SVG sheet first.")
-            return
-        if not formats:
-            messagebox.showerror("No Export Format", "Choose at least one export format.")
-            return
-        if self.output_width_var.get() <= 0 or self.output_height_var.get() <= 0:
-            messagebox.showerror("Canvas Size", "Canvas width and height must be positive pixel values.")
-            return
-        if self.settings.provider == "ollama" and not is_local_url(self.settings.ollama_url):
-            messagebox.showerror("Local Only", "Ollama must point to a local endpoint such as http://127.0.0.1:11434.")
-            return
-        if self.settings.provider == "llamacpp" and not is_local_url(self.settings.llamacpp_url):
-            messagebox.showerror("Local Only", "llama.cpp must point to a local endpoint such as http://127.0.0.1:8080.")
+        # Validate a candidate carrying the spinbox values rather than writing
+        # them in first, so a rejected click leaves the live settings untouched.
+        candidate = replace(
+            self.settings,
+            output_width=self.output_width_var.get(),
+            output_height=self.output_height_var.get(),
+        )
+        issue = validate_extraction_request(candidate, input_path, formats)
+        if issue is not None:
+            messagebox.showerror(issue.title, issue.message)
             return
 
         self.settings.last_input_path = str(input_path)
@@ -403,24 +395,20 @@ class WorkspaceTab(ttk.Frame):
         self.current_result = result
         self.results_tree.delete(*self.results_tree.get_children())
         for icon in result.icons:
-            source_text = f"{icon.source_size[0]} x {icon.source_size[1]}"
-            canvas_text = f"{icon.canvas_size[0]} x {icon.canvas_size[1]}"
             self.results_tree.insert(
                 "",
                 "end",
                 iid=str(icon.index),
                 text=icon.stem,
-                values=(", ".join(sorted(icon.outputs.keys())), source_text, canvas_text),
+                values=(
+                    ", ".join(sorted(icon.outputs.keys())),
+                    format_size(icon.source_size),
+                    format_size(icon.canvas_size),
+                ),
             )
         self.progress_value_var.set(100.0)
-        self.progress_label_var.set(f"Done. Exported {len(result.icons)} icons.")
-
-        status = f"Extracted {len(result.icons)} icons to {result.output_dir}"
-        if result.commit is not None and result.commit.replaced:
-            status += f"  |  replaced {result.commit.replaced} files from the previous run"
-        if result.naming.requested:
-            status += f"  |  {result.naming.describe()}"
-        self.status_var.set(status)
+        self.progress_label_var.set(describe_progress_completion(len(result.icons)))
+        self.status_var.set(describe_result(result))
 
         if result.icons:
             self.results_tree.selection_set(str(result.icons[0].index))
@@ -440,9 +428,7 @@ class WorkspaceTab(ttk.Frame):
 
     def _show_preview(self, icon) -> None:
         path = self._resolve_preview_path(icon)
-        self.preview_meta_var.set(
-            f"{icon.stem}  |  source {icon.source_size[0]} x {icon.source_size[1]}  |  canvas {icon.canvas_size[0]} x {icon.canvas_size[1]}"
-        )
+        self.preview_meta_var.set(describe_icon(icon))
         if path is None or not path.exists():
             self.preview_photo = None
             self.preview_label.configure(text="No preview available for this item.", image="")
@@ -453,18 +439,7 @@ class WorkspaceTab(ttk.Frame):
         self.preview_label.configure(text="", image=self.preview_photo)
 
     def _resolve_preview_path(self, icon) -> Path | None:
-        if icon.preview_path is not None and icon.preview_path.exists():
-            return icon.preview_path
-        svg_path = icon.outputs.get("svg")
-        if svg_path is None or not svg_path.exists():
-            return None
-        preview_path = self.preview_cache_dir / f"{icon.stem}_preview.png"
-        if not preview_path.exists():
-            try:
-                export_svg_to_png(svg_path, preview_path)
-            except Exception:
-                return None
-        return preview_path
+        return resolve_preview_path(icon, self.preview_cache_dir)
 
     def apply_theme(self, mode: str) -> None:
         try:
