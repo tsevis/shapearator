@@ -109,8 +109,8 @@ behaviour rather than reimplementing it.
 Fully offline: network calls and subprocesses are mocked, so neither a model
 backend nor Inkscape is required. Run with `pytest -q`.
 
-Coverage is measured over `services/` alone and must stay at or above 80%;
-`pytest --cov` enforces it. See the README's Development section for why the
+Branch coverage is measured over `services/` alone and must stay at or above
+80%; `pytest --cov` enforces it. See the README's Development section for why the
 bar is scoped to the engine.
 
 The suite also opens no windows. The `gui/` tests cover module-level tables and

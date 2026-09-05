@@ -20,6 +20,10 @@ markers = [
 # would move the number without telling anyone anything about the engine.
 [tool.coverage.run]
 source = ["services"]
+# Branch coverage, not just statements: a half-tested `if` is the shape most of
+# this engine's bugs take — a preflight that passes but was never seen failing,
+# a fallback path no test walks.
+branch = true
 
 [tool.coverage.report]
 fail_under = 80
