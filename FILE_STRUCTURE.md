@@ -143,6 +143,7 @@ Run them deliberately with `pytest -m gui`, and expect windows to appear.
 | `test_extractor_units.py` | drawable grouping, canvas clamping, vector-mode recording, working-directory pruning |
 | `test_extractor_svg_pipeline.py` | the SVG run end to end with only Inkscape faked: grouped vs loose, format selection, cleanup, progress |
 | `test_first_run.py` | candidate labels, partial-backend offers, install routing, the setup marker |
+| `test_model_bootstrap.py` | Ollama reachability and pull streaming, HF filename resolution, resumable downloads |
 | `test_gui_windows.py` | real widgets: variables built from settings, presets reaching the spinboxes, results filling the tree (`gui`-marked) |
 | `conftest.py` | the `gui_root` fixture and the hook that marks anything using it |
 | `test_detection_presets.py` | the preset table, lookup, immutability, and naming the current values |
