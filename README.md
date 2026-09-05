@@ -2,7 +2,7 @@
 
 Created by Charis Tsevis.
 
-Current version: `0.4.2`
+Current version: `0.4.3`
 
 ![Shapearator workspace](docs/readme/workspace.webp)
 
@@ -334,7 +334,7 @@ backend nor Inkscape.
 | `services/` | the engine: detection, export, naming, settings |
 | `gui/` | tkinter/ttk desktop interface |
 | `tests/` | pytest suite |
-| `docs/` | sample sheets and screenshots |
+| `docs/` | the committed sample sheets and screenshots; scratch exports here are ignored |
 
 `FILE_STRUCTURE.md` describes every module; `MANUAL.md` is the end-user guide.
 

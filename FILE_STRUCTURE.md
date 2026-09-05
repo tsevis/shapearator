@@ -15,7 +15,7 @@ shapearator/
   tests/             # pytest suite
   config/            # persisted settings and the first-run marker (runtime state)
   models/            # downloaded llama.cpp GGUF weights (gitignored)
-  docs/              # sample sheets and screenshots
+  docs/              # committed sample sheets and screenshots (see below)
   logs/              # generated run logs
   requirements.txt
   README.md  MANUAL.md  FILE_STRUCTURE.md  LICENSE
@@ -144,10 +144,18 @@ output folder are not tracked by the manifest and are never deleted.
 `services/`, `gui/`, `tests/`, `requirements.txt`, and the markdown documents.
 
 **Sample assets:** `docs/base.png`, `docs/base.svg`, `docs/base.ai`, and
-`docs/readme/` screenshots.
+`docs/readme/` screenshots. These four entries are the whole of the committed
+`docs/`.
 
 **Generated, safe to delete:** `config/settings.json`, `config/setup_state.json`,
-`models/`, `logs/`, `__pycache__/`, `.pytest_cache/`, and any export folder.
+`models/`, `logs/`, `__pycache__/`, `.pytest_cache/`, `.ruff_cache/`,
+`.coverage`, and any export folder.
+
+`docs/` doubles as a scratch area for local test runs, and those runs are large
+— an export of a full sheet is tens of megabytes. `.gitignore` therefore ignores
+`docs/` as a whole and re-admits only the four sample assets above, so a stray
+`git add .` cannot commit a run. A genuinely new doc asset needs its own
+negation line in `.gitignore`, or `git add -f`.
 
 ## Where to make a change
 

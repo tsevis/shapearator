@@ -2,9 +2,21 @@
 __pycache__/
 *.pyc
 logs/
+.coverage
 _work_png/
 _work_svg/
 .shapearator-staging/
 models/
 config/settings.json
 config/setup_state.json
+
+# docs/ holds a few committed sample assets; everything else in it is
+# extraction output from local runs (155 MB and growing, folder names chosen
+# per run). Ignore the directory and re-admit only the committed assets, so a
+# stray `git add .` cannot pull a run into history. New doc assets need a
+# negation line here or `git add -f`.
+docs/*
+!docs/base.ai
+!docs/base.png
+!docs/base.svg
+!docs/readme/
