@@ -1,0 +1,60 @@
+# This repository had no CI: nothing mechanically checked a push or a pull
+# request, merged ones included. The suite was green on one desktop and no
+# other machine had ever run it.
+#
+# Two things had to be true before this file could say anything, and both were
+# measured rather than assumed:
+#
+#   * `tests/conftest.py` imports tkinter at module level, so it loads on
+#     EVERY run including `-m "not gui"`. Ubuntu's python does not ship it;
+#     without python3-tk collection fails before a single test runs.
+#   * Six test modules name inkscape and potrace. All six mock them
+#     (monkeypatch / patch) and none carries a skipif, so the binaries are not
+#     needed. Verified by running the suite with them off PATH: 557 passed.
+#
+# The suite's own `addopts` already carries `-m "not gui"`, so no marker
+# expression is repeated here. Repeating it would let the two drift apart, and
+# the pyproject.toml comment is where the policy is explained.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # python3-tk: conftest.py imports tkinter at module level (see above).
+      # libgl1 + libglib2.0-0: the opencv-python wheel links against them and
+      # `import cv2` fails on a bare runner without them.
+      - name: System packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-tk libgl1 libglib2.0-0
+
+      # -c constraints.txt on purpose: floors alone install whatever is newest
+      # that day, and a red run then cannot be told from an index that moved.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -c constraints.txt
+          pip install -c constraints.txt pytest
+
+      - name: Suite
+        run: pytest -q -ra

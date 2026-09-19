@@ -1,0 +1,21 @@
+# Exact versions the suite is VERIFIED against, not researched minimums.
+#
+# requirements.txt declares floors, which are right for a local install and
+# wrong for a gate: an unconstrained install takes whatever is newest that
+# day, so a run that goes red a month from now cannot be told apart from an
+# index that moved. Every version here was installed into a clean venv and
+# ran the full default suite (557 passed, 22 gui deselected, 12,03s) on
+# 2026-09-19.
+#
+# On opencv specifically, two things were measured rather than assumed:
+#   * `opencv-python>=4.8` resolves to 5.0.0.93 TODAY. The suite passes on it.
+#   * The desktop this was written on has opencv-CONTRIB-python 4.13.0.92
+#     installed instead, and the suite passes there too (557, 14,13s).
+# So this pin is not working around a known break. It is here so that when a
+# break does arrive, the run that catches it is comparable to the one before.
+numpy==2.5.3
+opencv-python==5.0.0.93
+pillow==12.3.0
+requests==2.34.2
+huggingface_hub==1.32.0
+pytest==9.1.1
