@@ -1,6 +1,14 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+# The suite imports `services` and `gui` as top-level packages from the repo
+# root, and nothing put that root on sys.path. It worked anyway under
+# `python -m pytest`, because `python -m` prepends the working directory --
+# a side effect, not a declaration. Plain `pytest` got 26 collection errors,
+# which is what the first CI run on a machine other than this desktop
+# reported. Declared here so both spellings behave the same.
+pythonpath = ["."]
+
 # Tests run on a desktop, inside a live GUI session. Anything that constructs a
 # real Tk window would put it on screen in front of whatever the user is doing,
 # so a window-opening test must be marked `gui` and is excluded from a plain
