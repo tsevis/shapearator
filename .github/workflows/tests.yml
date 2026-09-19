@@ -11,6 +11,12 @@
 #   * Six test modules name inkscape and potrace. All six mock them
 #     (monkeypatch / patch) and none carries a skipif, so the binaries are not
 #     needed. Verified by running the suite with them off PATH: 557 passed.
+#   * The suite imported `services` from the repo root with nothing putting
+#     that root on sys.path. It passed anyway under `python -m pytest`, which
+#     prepends the working directory -- so the green runs were relying on a
+#     side effect. This workflow's FIRST run said so: 26 collection errors,
+#     `No module named 'services'`. pyproject.toml now declares
+#     `pythonpath = ["."]`, and both spellings pass.
 #
 # The suite's own `addopts` already carries `-m "not gui"`, so no marker
 # expression is repeated here. Repeating it would let the two drift apart, and
