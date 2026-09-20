@@ -69,17 +69,6 @@ CATALOG: tuple[VisionModelSpec, ...] = (
         default_install=True,
     ),
     VisionModelSpec(
-        key="minicpm-v",
-        display_name="MiniCPM-V",
-        priority=3,
-        recommendation="Great backup when you want a second opinion on hand-drawn marks and ambiguous symbols.",
-        ollama_tag="minicpm-v:latest",
-        approx_ollama_gb=5.5,
-        hf_repo="openbmb/MiniCPM-V-2_6-gguf",
-        gguf_quant="Q4_K_M",
-        approx_llamacpp_gb=5.5,
-    ),
-    VisionModelSpec(
         key="moondream",
         display_name="moondream2",
         priority=4,
@@ -100,6 +89,19 @@ CATALOG: tuple[VisionModelSpec, ...] = (
         hf_repo="ggml-org/llava-1.6-mistral-7b-gguf",
         gguf_quant="Q4_K_M",
         approx_llamacpp_gb=4.4,
+    ),
+    VisionModelSpec(
+        key="minicpm-v",
+        display_name="MiniCPM-V",
+        priority=6,
+        recommendation="Reads hand-drawn marks well, but often answers with the wording of the "
+                       "request instead of a label -- 30 of 47 icons on the sheet this was "
+                       "measured on. Worth a try for a second opinion; check the names it gives.",
+        ollama_tag="minicpm-v:latest",
+        approx_ollama_gb=5.5,
+        hf_repo="openbmb/MiniCPM-V-2_6-gguf",
+        gguf_quant="Q4_K_M",
+        approx_llamacpp_gb=5.5,
     ),
     VisionModelSpec(
         key="smolvlm-500m",
