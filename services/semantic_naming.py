@@ -21,6 +21,8 @@ from .extraction_types import (
     ExtractionProgress,
     NamingSummary,
 )
+from PIL import Image, UnidentifiedImageError
+
 from .svg_ops import export_svg_to_png
 from .vision import (
     PreflightResult,
@@ -135,17 +137,46 @@ def _emit(callback: ProgressCallback, current: int, total: int) -> None:
         callback(ExtractionProgress("naming", current, total, f"Naming icon {current} of {total}"))
 
 
+def _flattened_for_viewing(source: Path, destination: Path) -> Path:
+    """Return a copy of ``source`` with any transparency laid over white.
+
+    An icon exported from an SVG source carries its artwork entirely in the
+    alpha channel: every RGB pixel is (0, 0, 0) and the shape exists only as
+    opacity. Handed that file, anything that flattens or ignores alpha sees
+    one black square -- which is how a sheet of 47 different icons came back
+    named "heart" 47 times, reported as 47 named and 0 failed.
+
+    The copy is for the model alone. The exported file is never touched: the
+    user asked for transparent bitmaps and still gets them.
+
+    Anything unreadable is passed through untouched. This is a courtesy to the
+    model, not a validation step, and an export the extractor produced but
+    Pillow cannot parse is not this function's problem to report.
+    """
+    try:
+        with Image.open(source) as image:
+            if "A" not in image.getbands():
+                return source
+            flattened = Image.new("RGB", image.size, (255, 255, 255))
+            flattened.paste(image.convert("RGBA"), mask=image.convert("RGBA").getchannel("A"))
+            flattened.save(destination)
+    except (OSError, UnidentifiedImageError, ValueError):
+        return source
+    return destination
+
+
 @contextmanager
 def _label_preview(icon: ExtractedIcon, scratch_dir: Path) -> Iterator[Path]:
     """Yield a bitmap of ``icon`` for the model to look at.
 
-    An exported bitmap is used directly. An SVG-only export has none, so one is
-    rendered here purely for labeling and discarded with ``scratch_dir`` -- a
-    vector run gets semantic filenames without the user having to select a
-    bitmap format they did not want.
+    An exported bitmap is used, flattened onto white so the model sees the
+    drawing rather than its silhouette. An SVG-only export has no bitmap, so
+    one is rendered here purely for labeling and discarded with
+    ``scratch_dir`` -- a vector run gets semantic filenames without the user
+    having to select a bitmap format they did not want.
     """
     if icon.preview_path is not None and icon.preview_path.exists():
-        yield icon.preview_path
+        yield _flattened_for_viewing(icon.preview_path, scratch_dir / f"label_{icon.index:04d}.png")
         return
 
     svg_path = icon.outputs.get("svg")
@@ -154,7 +185,7 @@ def _label_preview(icon: ExtractedIcon, scratch_dir: Path) -> Iterator[Path]:
 
     preview = scratch_dir / f"label_{icon.index:04d}.png"
     export_svg_to_png(svg_path, preview)
-    yield preview
+    yield _flattened_for_viewing(preview, scratch_dir / f"label_{icon.index:04d}_flat.png")
 
 
 def _label_icon(client, model: str, icon: ExtractedIcon, scratch_dir: Path) -> tuple[dict, str | None]:
