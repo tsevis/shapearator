@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Iterable
 
 from services.settings_schema import AppSettings
+from services.sheets import SUPPORTED_SUFFIXES, find_sheets
 from services.vision import is_local_url
 
-SUPPORTED_SUFFIXES = (".png", ".svg")
+__all__ = ["SUPPORTED_SUFFIXES", "ValidationIssue", "validate_extraction_request"]
 
 
 @dataclass(frozen=True)
@@ -43,9 +44,18 @@ def validate_extraction_request(
     selected = set(formats)
 
     if not input_path.exists():
-        return ValidationIssue("Missing Input", f"Input file not found: {input_path}")
+        return ValidationIssue("Missing Input", f"Input not found: {input_path}")
 
-    if input_path.suffix.lower() not in SUPPORTED_SUFFIXES:
+    if input_path.is_dir():
+        # A folder is judged by what is in it, never by its own name: a folder
+        # called "drawings.png" would otherwise pass the suffix check below.
+        if not find_sheets(input_path):
+            return ValidationIssue(
+                "Nothing To Extract",
+                f"No .png or .svg sheets in {input_path}. "
+                "Choose the folder that holds the artwork, not one above it.",
+            )
+    elif input_path.suffix.lower() not in SUPPORTED_SUFFIXES:
         return ValidationIssue("Unsupported Input", "Supported inputs are .png and .svg")
 
     if not selected:

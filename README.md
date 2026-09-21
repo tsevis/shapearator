@@ -271,11 +271,19 @@ for a fast smoke test.
 
 ```bash
 python shapearator.py INPUT --output-dir OUTPUT [options]
+
+# INPUT is one sheet, or a folder of them:
+python shapearator.py ./sheets --output-dir ./exports --svg-split shape
 ```
 
 **Output** — `--formats png jpg tiff svg`, `--output-width`, `--output-height`,
 `--canvas-mode {original,uniform_to_largest,individual_fit}`,
 `--bitmap-export-mode {keep_background,transparent_preserve_interior}`
+
+**Input** — one `.png` or `.svg`, or a folder holding them. A folder is
+extracted sheet by sheet, each into its own subfolder named after the file, so
+no two sheets' `icon_001` collide. A sheet that cannot be read is reported and
+the run continues.
 
 **Detection** — `--detection-preset {Balanced,Tiny Details,Loose Sketches,Bold Shapes}`,
 `--padding`, `--min-area`, `--merge-gap`, `--svg-split {auto,shape,cluster}`
@@ -376,6 +384,7 @@ anything about the engine.
 | Small marks disappear | lower `min-area`, or use the `Tiny Details` preset |
 | One icon split into several | raise `merge-gap`, or use `Loose Sketches` |
 | A whole SVG sheet came out as one icon | its shapes touch; use `--svg-split shape` |
+| A folder run found nothing | sheets must sit directly in it; subfolders are not searched |
 | Icons inconsistent in scale | use `uniform_to_largest` |
 
 ---

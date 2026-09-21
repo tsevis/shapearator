@@ -11,6 +11,7 @@ from services.run_summary import (
     format_size,
     provider_summary,
 )
+from services import run_summary
 from services.settings_schema import AppSettings
 
 
@@ -142,3 +143,36 @@ def test_a_result_without_a_commit_is_described_anyway():
 
 def test_the_completion_label_counts_the_icons():
     assert describe_progress_completion(47) == "Done. Exported 47 icons."
+
+
+# --- what the app sees at the chosen input --------------------------------
+
+def test_a_folder_reports_how_many_sheets_it_will_extract(tmp_path):
+    folder = tmp_path / "MANY"
+    folder.mkdir()
+    for name in ("Many1.svg", "Many2.svg", "Many3.png", "notes.txt"):
+        (folder / name).write_text("x")
+    assert "3 sheets" in run_summary.describe_input(folder)
+
+
+def test_one_sheet_is_not_described_as_one_sheets(tmp_path):
+    folder = tmp_path / "MANY"
+    folder.mkdir()
+    (folder / "only.svg").write_text("x")
+    text = run_summary.describe_input(folder)
+    assert "1 sheet" in text and "1 sheets" not in text
+
+
+def test_a_folder_with_nothing_in_it_says_so_rather_than_zero(tmp_path):
+    """"0 sheets" reads like a count; this has to read like a mistake."""
+    folder = tmp_path / "Wrong"
+    folder.mkdir()
+    text = run_summary.describe_input(folder)
+    assert "0" not in text
+    assert "no" in text.lower()
+
+
+def test_a_single_sheet_needs_no_explanation(tmp_path):
+    sheet = tmp_path / "one.svg"
+    sheet.write_text("x")
+    assert run_summary.describe_input(sheet) == ""

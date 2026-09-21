@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from typing import Sequence
 
+from pathlib import Path
+
 from services.settings_schema import AppSettings
+from services.sheets import find_sheets
 
 STATUS_SEPARATOR = "  |  "
 
@@ -20,6 +23,22 @@ STATUS_SEPARATOR = "  |  "
 def format_size(size: Sequence[int]) -> str:
     """A width/height pair as it appears in the results table."""
     return f"{size[0]} x {size[1]}"
+
+
+def describe_input(path: Path) -> str:
+    """What the app sees at the chosen input, or "" when there is nothing to add.
+
+    Only a folder needs explaining. Choosing the parent of the artwork instead
+    of the artwork is the easy mistake, and it costs a whole run to discover,
+    so the count is shown before the run rather than after it.
+    """
+    if not path.exists() or not path.is_dir():
+        return ""
+    count = len(find_sheets(path))
+    if count == 0:
+        return "Folder selected, but there are no .png or .svg sheets directly inside it."
+    sheets = "sheet" if count == 1 else "sheets"
+    return f"Folder selected: {count} {sheets}, each extracted into its own subfolder."
 
 
 def provider_summary(settings: AppSettings) -> str:

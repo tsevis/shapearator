@@ -127,3 +127,31 @@ def test_a_remote_endpoint_for_an_inactive_provider_is_not_the_run_s_problem(she
 
 def test_the_formats_argument_may_be_any_iterable(sheet):
     assert validate_extraction_request(settings(), sheet, ["png", "svg"]) is None
+
+
+# --- a folder of sheets ---------------------------------------------------
+
+def test_a_folder_holding_sheets_can_run(tmp_path):
+    folder = tmp_path / "MANY"
+    folder.mkdir()
+    (folder / "Many1.svg").write_text("<svg/>")
+    assert validate_extraction_request(settings(), folder, {"svg"}) is None
+
+
+def test_a_folder_with_nothing_to_extract_is_refused(tmp_path):
+    """Chosen the parent by mistake: the message has to say which folder."""
+    folder = tmp_path / "Artwork"
+    folder.mkdir()
+    (folder / "notes.txt").write_text("nothing to extract here")
+    issue = validate_extraction_request(settings(), folder, {"svg"})
+    assert issue is not None
+    assert "Artwork" in issue.message
+
+
+def test_a_folder_is_not_judged_by_its_own_suffix(tmp_path):
+    """A folder named "drawings.png" is still a folder, not a sheet."""
+    folder = tmp_path / "drawings.png"
+    folder.mkdir()
+    issue = validate_extraction_request(settings(), folder, {"svg"})
+    assert issue is not None
+    assert "no" in issue.message.lower() or "not" in issue.message.lower()

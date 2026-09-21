@@ -176,6 +176,10 @@ never tracked and never removed.
 - `--merge-gap`
 - `--svg-split`
 
+The positional input accepts a folder as well as a single file. Every `.png`
+and `.svg` directly inside it is extracted into its own subfolder of
+`--output-dir`, named after the sheet.
+
 ### Provider options
 
 - `--provider`

@@ -5,6 +5,7 @@ import argparse
 import time
 from pathlib import Path
 
+from services.batch import NoSheetsFound, extract_folder
 from services.config_store import AppSettings, ConfigStore
 from services.detection_presets import preset_names, values_for_preset
 from services.extractor import (
@@ -327,6 +328,19 @@ def maybe_save_config(settings: AppSettings, args: argparse.Namespace) -> None:
     print(f"Saved resolved settings to {(Path('config') / 'settings.json').resolve()}")
 
 
+def print_batch_completion(outcome) -> None:
+    """Report a folder run: the totals first, then each sheet by name."""
+    print("")
+    print(f"Completed: {outcome.summary()}")
+    for sheet in outcome.sheets:
+        if sheet.failed:
+            print(f"  {sheet.input_path.name}: FAILED - {sheet.error}")
+        else:
+            print(f"  {sheet.input_path.name}: {len(sheet.icons)} icons -> {sheet.output_dir.name}/")
+    for warning in outcome.warnings:
+        print(f"Warning: {warning}")
+
+
 def print_completion(result: ExtractionResult) -> None:
     print("")
     print(f"Provider summary: {result.provider_summary}")
@@ -355,7 +369,10 @@ def main() -> int:
         return run_headless_setup(args)
 
     if args.input is None:
-        raise SystemExit("An input .png or .svg is required (or run with --setup to download models).")
+        raise SystemExit(
+            "An input .png or .svg, or a folder of them, is required "
+            "(or run with --setup to download models)."
+        )
 
     input_path = args.input.expanduser().resolve()
     output_dir = args.output_dir.expanduser().resolve()
@@ -368,6 +385,16 @@ def main() -> int:
     print_run_header(settings, input_path, output_dir, formats, args)
 
     try:
+        if input_path.is_dir():
+            outcome = extract_folder(
+                settings, input_path, output_dir, formats,
+                progress_callback=progress_printer,
+                allow_unnamed=args.allow_unnamed,
+            )
+            print_batch_completion(outcome)
+            # A folder where nothing could be read is a failed run, not a
+            # quiet success with an empty output directory.
+            return 1 if outcome.extracted_count == 0 else 0
         result = IconExtractor(settings).extract(
             input_path=input_path,
             output_dir=output_dir,
@@ -375,6 +402,8 @@ def main() -> int:
             progress_callback=progress_printer,
             allow_unnamed=args.allow_unnamed,
         )
+    except NoSheetsFound as exc:
+        raise SystemExit(str(exc)) from exc
     except SemanticPreflightError as exc:
         raise SystemExit(
             f"Semantic naming is enabled but the backend is not ready: {exc}\n"

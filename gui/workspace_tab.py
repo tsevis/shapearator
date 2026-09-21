@@ -19,12 +19,14 @@ from services.extractor import ExtractionProgress, ExtractionResult, IconExtract
 from services.preview_cache import resolve_preview_path
 from services.request_validation import validate_extraction_request
 from services.run_summary import (
+    describe_input,
     describe_icon,
     describe_progress_completion,
     describe_result,
     format_size,
     provider_summary,
 )
+from services.batch import BatchOutcome, extract_folder
 from services.semantic_naming import naming_requested
 from services.vision import PreflightResult, preflight
 
@@ -65,6 +67,10 @@ class WorkspaceTab(ttk.Frame):
         self.settings = settings
         self.on_settings_commit = on_settings_commit
         self.input_var = tk.StringVar(value=settings.last_input_path)
+        self.input_hint_var = tk.StringVar(value=describe_input(Path(settings.last_input_path)))
+        # The count must follow a path typed in by hand, not only one picked
+        # from the dialog, or the hint quietly describes a previous choice.
+        self.input_var.trace_add("write", self._refresh_input_hint)
         self.output_var = tk.StringVar(value=settings.last_output_dir or str(Path.cwd() / "exports"))
         self.padding_var = tk.IntVar(value=settings.padding)
         self.min_area_var = tk.IntVar(value=settings.min_area)
@@ -89,6 +95,7 @@ class WorkspaceTab(ttk.Frame):
         self.preview_photo = None
         self.preview_cache_dir = Path(tempfile.mkdtemp(prefix="shapearator_preview_"))
         self.current_result: ExtractionResult | None = None
+        self.current_icons: list = []
         self._build()
 
     def _build(self) -> None:
@@ -117,13 +124,18 @@ class WorkspaceTab(ttk.Frame):
         source_card.columnconfigure(0, weight=0)
         source_card.columnconfigure(1, weight=1)
         source_card.columnconfigure(2, weight=0)
-        ttk.Label(source_card, text="Input Sheet").grid(row=0, column=0, sticky="w")
+        ttk.Label(source_card, text="Input").grid(row=0, column=0, sticky="w")
         ttk.Entry(source_card, textvariable=self.input_var).grid(row=0, column=1, sticky="ew", padx=(10, 10))
-        ttk.Button(source_card, text="Browse", command=self._browse_input).grid(row=0, column=2, sticky="e")
+        input_buttons = ttk.Frame(source_card)
+        input_buttons.grid(row=0, column=2, sticky="e")
+        ttk.Button(input_buttons, text="Sheet", command=self._browse_input).grid(row=0, column=0)
+        ttk.Button(input_buttons, text="Folder", command=self._browse_input_folder).grid(row=0, column=1, padx=(6, 0))
         ttk.Label(source_card, text="Output Folder").grid(row=1, column=0, sticky="w", pady=(6, 0))
         ttk.Entry(source_card, textvariable=self.output_var).grid(row=1, column=1, sticky="ew", padx=(10, 10), pady=(6, 0))
         ttk.Button(source_card, text="Browse", command=self._browse_output).grid(row=1, column=2, sticky="e", pady=(6, 0))
-        ttk.Label(source_card, textvariable=self.provider_summary_var, style="Strong.TLabel").grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(source_card, textvariable=self.input_hint_var, style="Muted.TLabel").grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(source_card, textvariable=self.provider_summary_var, style="Strong.TLabel").grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
         ttk.Label(
             source_card,
             text="Tip: SVG input preserves vector cleanliness best. PNG input works beautifully when the shapes are clearly separated.",
@@ -311,6 +323,18 @@ class WorkspaceTab(ttk.Frame):
         if path:
             self.input_var.set(path)
 
+    def _browse_input_folder(self) -> None:
+        """Pick a folder of sheets; every one inside is extracted in one run."""
+        path = filedialog.askdirectory(
+            title="Choose a folder of sheets",
+            initialdir=self.input_var.get() or str(Path.cwd()),
+        )
+        if path:
+            self.input_var.set(path)
+
+    def _refresh_input_hint(self, *_args) -> None:
+        self.input_hint_var.set(describe_input(Path(self.input_var.get().strip())))
+
     def _browse_output(self) -> None:
         path = filedialog.askdirectory(initialdir=self.output_var.get() or str(Path.cwd()))
         if path:
@@ -367,6 +391,14 @@ class WorkspaceTab(ttk.Frame):
 
         def worker() -> None:
             try:
+                if input_path.is_dir():
+                    outcome = extract_folder(
+                        self.settings, input_path, output_dir, formats,
+                        progress_callback=self._queue_progress_update,
+                        allow_unnamed=allow_unnamed,
+                    )
+                    self.after(0, lambda value=outcome: self._handle_batch_result(value))
+                    return
                 result = IconExtractor(self.settings).extract(
                     input_path,
                     output_dir,
@@ -427,14 +459,20 @@ class WorkspaceTab(ttk.Frame):
         self.progress_label_var.set("Extraction failed.")
         messagebox.showerror("Extraction Failed", str(exc))
 
-    def _handle_result(self, result: ExtractionResult) -> None:
-        self.current_result = result
+    def _fill_results(self, icons, status: str) -> None:
+        """Populate the table from any run.
+
+        Rows are keyed by position, not by ``icon.index``: a folder run numbers
+        every sheet's icons from one, so five sheets would all claim the id
+        "1" and Tk would refuse the second.
+        """
+        self.current_icons = list(icons)
         self.results_tree.delete(*self.results_tree.get_children())
-        for icon in result.icons:
+        for position, icon in enumerate(self.current_icons):
             self.results_tree.insert(
                 "",
                 "end",
-                iid=str(icon.index),
+                iid=str(position),
                 text=icon.stem,
                 values=(
                     ", ".join(sorted(icon.outputs.keys())),
@@ -443,24 +481,31 @@ class WorkspaceTab(ttk.Frame):
                 ),
             )
         self.progress_value_var.set(100.0)
-        self.progress_label_var.set(describe_progress_completion(len(result.icons)))
-        self.status_var.set(describe_result(result))
+        self.progress_label_var.set(describe_progress_completion(len(self.current_icons)))
+        self.status_var.set(status)
+        if self.current_icons:
+            self.results_tree.selection_set("0")
+            self._show_preview(self.current_icons[0])
 
-        if result.icons:
-            self.results_tree.selection_set(str(result.icons[0].index))
-            self._show_preview(result.icons[0])
+    def _handle_result(self, result: ExtractionResult) -> None:
+        self.current_result = result
+        self._fill_results(result.icons, describe_result(result))
         if result.warnings:
             messagebox.showwarning("Completed With Warnings", "\n\n".join(result.warnings))
 
+    def _handle_batch_result(self, outcome: BatchOutcome) -> None:
+        self.current_result = None
+        self._fill_results(outcome.icons, outcome.summary())
+        if outcome.warnings:
+            messagebox.showwarning("Completed With Warnings", "\n\n".join(outcome.warnings))
+
     def _on_select_result(self, _event=None) -> None:
-        if self.current_result is None:
-            return
         selection = self.results_tree.selection()
         if not selection:
             return
-        index = int(selection[0]) - 1
-        if 0 <= index < len(self.current_result.icons):
-            self._show_preview(self.current_result.icons[index])
+        position = int(selection[0])
+        if 0 <= position < len(self.current_icons):
+            self._show_preview(self.current_icons[position])
 
     def _show_preview(self, icon) -> None:
         path = self._resolve_preview_path(icon)
