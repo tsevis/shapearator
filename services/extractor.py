@@ -86,7 +86,7 @@ __all__ = [
     "slugify",
 ]
 
-APP_VERSION = "0.4.8"
+APP_VERSION = "0.4.10"
 
 
 def _relocate_icon(icon: ExtractedIcon, staging: ExportStaging) -> ExtractedIcon:
