@@ -14,7 +14,9 @@ import pytest
 
 import services.batch as batch
 from services.extraction_types import ExtractedIcon, ExtractionResult
+from services.semantic_naming import SemanticPreflightError
 from services.settings_schema import AppSettings
+from services.vision import PreflightResult
 
 
 def write_sheets(folder: Path, names: list[str]) -> Path:
@@ -215,3 +217,49 @@ def test_a_folder_the_user_already_had_there_is_not_removed(tmp_path, monkeypatc
     batch.extract_folder(AppSettings(), folder, out, {"svg"})
 
     assert (out / "broken" / "notes.txt").read_text() == "mine"
+
+
+def test_an_unready_backend_stops_the_run_instead_of_failing_every_sheet(tmp_path, monkeypatch):
+    """The backend is down for the whole folder, not for one sheet.
+
+    Recording it per sheet turns one recoverable, actionable failure into nine
+    identical unactionable ones, and silences the "export with generic names?"
+    offer that both the CLI and the app build on this exception.
+    """
+    folder = write_sheets(tmp_path / "in", ["a.svg", "b.svg", "c.svg"])
+    attempts = []
+
+    class Extractor:
+        def __init__(self, settings):
+            pass
+
+        def extract(self, input_path, output_dir, formats, progress_callback=None,
+                    allow_unnamed=False):
+            attempts.append(input_path.name)
+            raise SemanticPreflightError(PreflightResult(False, "llamacpp", "not reachable"))
+
+    monkeypatch.setattr(batch, "IconExtractor", Extractor)
+    with pytest.raises(SemanticPreflightError):
+        batch.extract_folder(AppSettings(), folder, tmp_path / "out", {"svg"})
+
+    assert attempts == ["a.svg"], "it should have given up after the first sheet"
+
+
+def test_giving_up_on_the_backend_leaves_no_folder_behind(tmp_path, monkeypatch):
+    folder = write_sheets(tmp_path / "in", ["a.svg"])
+
+    class Extractor:
+        def __init__(self, settings):
+            pass
+
+        def extract(self, input_path, output_dir, formats, progress_callback=None,
+                    allow_unnamed=False):
+            output_dir.mkdir(parents=True, exist_ok=True)
+            raise SemanticPreflightError(PreflightResult(False, "llamacpp", "not reachable"))
+
+    monkeypatch.setattr(batch, "IconExtractor", Extractor)
+    out = tmp_path / "out"
+    with pytest.raises(SemanticPreflightError):
+        batch.extract_folder(AppSettings(), folder, out, {"svg"})
+
+    assert not (out / "a").exists()

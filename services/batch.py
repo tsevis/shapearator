@@ -23,6 +23,7 @@ from typing import Callable
 from services.extraction_types import ExtractedIcon, ExtractionProgress, ExtractionResult
 from services.extractor import IconExtractor
 from services.sheets import find_sheets
+from services.semantic_naming import SemanticPreflightError
 from services.settings_schema import AppSettings
 
 
@@ -155,6 +156,14 @@ def extract_folder(
                 sheet, destination, formats,
                 progress_callback=forward, allow_unnamed=allow_unnamed,
             )
+        except SemanticPreflightError:
+            # Not this sheet's problem, and skipping it fixes nothing: the
+            # vision backend is unreachable for every sheet in the folder.
+            # Recording it per sheet turns one recoverable failure into nine
+            # unactionable ones and silences the "export with generic names?"
+            # offer that both the CLI and the app build on this exception.
+            _remove_if_empty(destination)
+            raise
         except Exception as exc:  # one unreadable sheet must not end the run
             _remove_if_empty(destination)
             outcomes.append(SheetOutcome(

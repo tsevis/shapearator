@@ -459,7 +459,7 @@ class WorkspaceTab(ttk.Frame):
         self.progress_label_var.set("Extraction failed.")
         messagebox.showerror("Extraction Failed", str(exc))
 
-    def _fill_results(self, icons, status: str) -> None:
+    def _fill_results(self, icons, status: str, labels: list[str] | None = None) -> None:
         """Populate the table from any run.
 
         Rows are keyed by position, not by ``icon.index``: a folder run numbers
@@ -473,7 +473,7 @@ class WorkspaceTab(ttk.Frame):
                 "",
                 "end",
                 iid=str(position),
-                text=icon.stem,
+                text=labels[position] if labels else icon.stem,
                 values=(
                     ", ".join(sorted(icon.outputs.keys())),
                     format_size(icon.source_size),
@@ -495,7 +495,18 @@ class WorkspaceTab(ttk.Frame):
 
     def _handle_batch_result(self, outcome: BatchOutcome) -> None:
         self.current_result = None
-        self._fill_results(outcome.icons, outcome.summary())
+        # Every sheet numbers its icons from one, so naming the sheet is the
+        # only thing that tells five rows called icon_001 apart. A run that
+        # covered one sheet needs no prefix.
+        extracted = [sheet for sheet in outcome.sheets if not sheet.failed]
+        labels = None
+        if len(extracted) > 1:
+            labels = [
+                f"{sheet.output_dir.name}/{icon.stem}"
+                for sheet in extracted
+                for icon in sheet.icons
+            ]
+        self._fill_results(outcome.icons, outcome.summary(), labels)
         if outcome.warnings:
             messagebox.showwarning("Completed With Warnings", "\n\n".join(outcome.warnings))
 
