@@ -15,9 +15,14 @@ from __future__ import annotations
 
 import shapearator
 from gui import workspace_tab
-from gui.workspace_tab import BITMAP_EXPORT_MODE_LABELS, CANVAS_MODE_LABELS
+from gui.workspace_tab import (
+    BITMAP_EXPORT_MODE_LABELS,
+    CANVAS_MODE_LABELS,
+    SVG_SPLIT_LABELS,
+    svg_split_key,
+)
 from services import detection_presets
-from services.settings_schema import BITMAP_EXPORT_MODES, CANVAS_MODES
+from services.settings_schema import BITMAP_EXPORT_MODES, CANVAS_MODES, SVG_SPLIT_MODES
 
 
 # --- schema parity --------------------------------------------------------
@@ -30,14 +35,28 @@ def test_every_bitmap_export_mode_is_offered_exactly_once():
     assert set(BITMAP_EXPORT_MODE_LABELS) == set(BITMAP_EXPORT_MODES)
 
 
+def test_every_svg_split_mode_is_offered_exactly_once():
+    assert set(SVG_SPLIT_LABELS) == set(SVG_SPLIT_MODES)
+
+
+def test_a_split_label_maps_back_to_its_schema_value():
+    """The dropdown shows prose; the settings file must get the enum."""
+    for key, label in SVG_SPLIT_LABELS.items():
+        assert svg_split_key(label) == key
+
+
+def test_an_unknown_split_label_falls_back_to_auto():
+    assert svg_split_key("something a future version offered") == "auto"
+
+
 def test_no_label_is_blank():
-    for labels in (CANVAS_MODE_LABELS, BITMAP_EXPORT_MODE_LABELS):
+    for labels in (CANVAS_MODE_LABELS, BITMAP_EXPORT_MODE_LABELS, SVG_SPLIT_LABELS):
         for key, label in labels.items():
             assert label.strip(), f"{key} has no label text"
 
 
 def test_labels_are_distinguishable_in_a_dropdown():
-    for labels in (CANVAS_MODE_LABELS, BITMAP_EXPORT_MODE_LABELS):
+    for labels in (CANVAS_MODE_LABELS, BITMAP_EXPORT_MODE_LABELS, SVG_SPLIT_LABELS):
         assert len(set(labels.values())) == len(labels)
 
 

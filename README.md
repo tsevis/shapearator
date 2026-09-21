@@ -131,6 +131,14 @@ drawing stay a single asset. Three settings drive it:
 Four presets cover the usual cases: `Balanced`, `Tiny Details`,
 `Loose Sketches`, `Bold Shapes`.
 
+An SVG sheet is cut before any of that applies. `--svg-split auto` reads the
+artwork: `<g>` elements are icons as authored, loose paths are clustered by
+the settings above. `--svg-split shape` gives every path, polygon or group its
+own file, which is what a mosaic or a tessellation needs -- its tiles touch,
+so clustering merges the whole sheet into one icon and no `merge-gap` can
+separate them. `--svg-split cluster` forces clustering even on authored
+groups.
+
 ### SVG sheets
 
 Shapearator reads the artwork's own structure first.
@@ -270,7 +278,7 @@ python shapearator.py INPUT --output-dir OUTPUT [options]
 `--bitmap-export-mode {keep_background,transparent_preserve_interior}`
 
 **Detection** — `--detection-preset {Balanced,Tiny Details,Loose Sketches,Bold Shapes}`,
-`--padding`, `--min-area`, `--merge-gap`
+`--padding`, `--min-area`, `--merge-gap`, `--svg-split {auto,shape,cluster}`
 
 **Naming** — `--provider {geometry,ollama,llamacpp,directory}`,
 `--semantic-naming` / `--no-semantic-naming`, `--allow-unnamed`,
@@ -367,6 +375,7 @@ anything about the engine.
 | Some icons kept generic names | the run reports how many failed; see `naming_error` in each metadata file |
 | Small marks disappear | lower `min-area`, or use the `Tiny Details` preset |
 | One icon split into several | raise `merge-gap`, or use `Loose Sketches` |
+| A whole SVG sheet came out as one icon | its shapes touch; use `--svg-split shape` |
 | Icons inconsistent in scale | use `uniform_to_largest` |
 
 ---

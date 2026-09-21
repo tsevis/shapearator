@@ -82,6 +82,7 @@ Detection section:
 - `Padding`: adds space around each extracted icon crop
 - `Min Area`: removes tiny detections such as dust or accidental marks
 - `Merge`: reconnects nearby strokes into one icon group
+- `Split`: how an SVG sheet is cut -- `Auto` follows the artwork, `Every shape` gives each path, polygon or group its own file, `Group by touch` clusters by pixels. `Every shape` is the one a mosaic or a tessellation needs, whose tiles touch and would otherwise merge
 - `Preset`: loads one of the built-in detection presets
 
 Output Studio section:
@@ -173,6 +174,7 @@ never tracked and never removed.
 - `--padding`
 - `--min-area`
 - `--merge-gap`
+- `--svg-split`
 
 ### Provider options
 

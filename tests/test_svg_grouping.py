@@ -12,6 +12,7 @@ from services.svg_ops import (
     ensure_element_ids,
     find_icon_elements,
     is_grouped_artwork,
+    splits_by_structure,
 )
 
 
@@ -171,3 +172,27 @@ def test_an_icon_at_the_root_gains_no_extra_transform(tmp_path):
 
     node = next(n for n in ET.parse(out).getroot() if n.attrib.get("id") == "a")
     assert node.attrib["transform"] == "translate(0 0) rotate(45)"
+
+
+# --- the split mode overrides the heuristic -------------------------------
+
+def test_split_mode_shape_forces_structure_on_bare_paths():
+    """A mosaic is bare paths whose tiles touch; clustering merges the lot."""
+    root = _parse('<svg xmlns="@NS@"><path id="a"/><path id="b"/><path id="c"/></svg>')
+    assert splits_by_structure(list(root), "shape") is True
+
+
+def test_split_mode_cluster_forces_pixels_on_authored_groups():
+    root = _parse('<svg xmlns="@NS@"><g id="a"/><g id="b"/></svg>')
+    assert splits_by_structure(list(root), "cluster") is False
+
+
+def test_split_mode_auto_defers_to_the_artwork():
+    grouped = _parse('<svg xmlns="@NS@"><g id="a"/><g id="b"/></svg>')
+    loose = _parse('<svg xmlns="@NS@"><path id="a"/><path id="b"/></svg>')
+    assert splits_by_structure(list(grouped), "auto") is True
+    assert splits_by_structure(list(loose), "auto") is False
+
+
+def test_split_mode_shape_still_reports_nothing_to_split():
+    assert splits_by_structure([], "shape") is False

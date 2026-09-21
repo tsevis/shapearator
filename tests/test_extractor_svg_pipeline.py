@@ -69,7 +69,7 @@ def fake_inkscape(monkeypatch):
     """Replace the three Inkscape calls; leave the rest of the engine alone."""
     calls = {"query": 0, "render": 0, "export": []}
 
-    def install(boxes):
+    def install(boxes, proof=None):
         def fake_query(_path):
             calls["query"] += 1
             return dict(boxes)
@@ -78,10 +78,12 @@ def fake_inkscape(monkeypatch):
             # A white sheet with two dark blobs, matching the loose fixture's
             # two visual clusters at 1:1 with the viewBox.
             calls["render"] += 1
-            proof = np.full((100, 100), 255, dtype=np.uint8)
-            proof[8:30, 8:30] = 0
-            proof[58:72, 58:72] = 0
-            Image.fromarray(proof).save(dst)
+            sheet_proof = proof
+            if sheet_proof is None:
+                sheet_proof = np.full((100, 100), 255, dtype=np.uint8)
+                sheet_proof[8:30, 8:30] = 0
+                sheet_proof[58:72, 58:72] = 0
+            Image.fromarray(sheet_proof).save(dst)
 
         def fake_export(src, dst):
             calls["export"].append((Path(src).name, Path(dst).name))
@@ -101,7 +103,7 @@ def fake_inkscape(monkeypatch):
 def test_each_authored_group_becomes_one_icon(sheet, tmp_path, fake_inkscape):
     calls = fake_inkscape(GROUPED_BOXES)
 
-    icons = extractor()._extract_from_svg(
+    icons, _warnings = extractor()._extract_from_svg(
         sheet(GROUPED_SHEET), tmp_path / "out", {"svg"}, None
     )
 
@@ -113,7 +115,7 @@ def test_a_multi_shape_group_stays_a_single_icon(sheet, tmp_path, fake_inkscape)
     """The drum-kit case: nineteen paths authored as one icon stay one icon."""
     fake_inkscape(GROUPED_BOXES)
 
-    icons = extractor()._extract_from_svg(
+    icons, _warnings = extractor()._extract_from_svg(
         sheet(GROUPED_SHEET), tmp_path / "out", {"svg"}, None
     )
 
@@ -124,7 +126,7 @@ def test_a_multi_shape_group_stays_a_single_icon(sheet, tmp_path, fake_inkscape)
 def test_detection_settings_do_not_touch_grouped_artwork(sheet, tmp_path, fake_inkscape):
     fake_inkscape(GROUPED_BOXES)
 
-    icons = extractor(min_area=99999, merge_gap=99)._extract_from_svg(
+    icons, _warnings = extractor(min_area=99999, merge_gap=99)._extract_from_svg(
         sheet(GROUPED_SHEET), tmp_path / "out", {"svg"}, None
     )
 
@@ -136,7 +138,7 @@ def test_detection_settings_do_not_touch_grouped_artwork(sheet, tmp_path, fake_i
 def test_loose_shapes_are_clustered_by_the_raster_pass(sheet, tmp_path, fake_inkscape):
     calls = fake_inkscape(LOOSE_BOXES)
 
-    icons = extractor(min_area=50, merge_gap=9)._extract_from_svg(
+    icons, _warnings = extractor(min_area=50, merge_gap=9)._extract_from_svg(
         sheet(LOOSE_SHEET), tmp_path / "out", {"svg"}, None
     )
 
@@ -147,7 +149,7 @@ def test_loose_shapes_are_clustered_by_the_raster_pass(sheet, tmp_path, fake_ink
 def test_nearby_strokes_end_up_in_the_same_icon(sheet, tmp_path, fake_inkscape):
     fake_inkscape(LOOSE_BOXES)
 
-    icons = extractor(min_area=50, merge_gap=9)._extract_from_svg(
+    icons, _warnings = extractor(min_area=50, merge_gap=9)._extract_from_svg(
         sheet(LOOSE_SHEET), tmp_path / "out", {"svg"}, None
     )
 
@@ -161,7 +163,7 @@ def test_an_svg_only_run_writes_vectors_and_no_bitmap(sheet, tmp_path, fake_inks
     calls = fake_inkscape(GROUPED_BOXES)
     out = tmp_path / "out"
 
-    icons = extractor()._extract_from_svg(sheet(GROUPED_SHEET), out, {"svg"}, None)
+    icons, _warnings = extractor()._extract_from_svg(sheet(GROUPED_SHEET), out, {"svg"}, None)
 
     assert set(icons[0].outputs) == {"svg"}
     assert icons[0].outputs["svg"].exists()
@@ -173,7 +175,7 @@ def test_a_bitmap_only_run_writes_no_vector(sheet, tmp_path, fake_inkscape):
     fake_inkscape(GROUPED_BOXES)
     out = tmp_path / "out"
 
-    icons = extractor()._extract_from_svg(sheet(GROUPED_SHEET), out, {"png"}, None)
+    icons, _warnings = extractor()._extract_from_svg(sheet(GROUPED_SHEET), out, {"png"}, None)
 
     assert set(icons[0].outputs) == {"png"}
     assert icons[0].outputs["png"].exists()
@@ -183,7 +185,7 @@ def test_a_bitmap_only_run_writes_no_vector(sheet, tmp_path, fake_inkscape):
 def test_both_formats_are_written_from_one_run(sheet, tmp_path, fake_inkscape):
     fake_inkscape(GROUPED_BOXES)
 
-    icons = extractor()._extract_from_svg(
+    icons, _warnings = extractor()._extract_from_svg(
         sheet(GROUPED_SHEET), tmp_path / "out", {"png", "svg"}, None
     )
 
@@ -218,7 +220,7 @@ def test_a_format_directory_is_not_left_behind_empty(sheet, tmp_path, fake_inksc
 def test_padding_widens_the_recorded_source_size(sheet, tmp_path, fake_inkscape):
     fake_inkscape(GROUPED_BOXES)
 
-    icons = extractor(padding=5)._extract_from_svg(
+    icons, _warnings = extractor(padding=5)._extract_from_svg(
         sheet(GROUPED_SHEET), tmp_path / "out", {"svg"}, None
     )
 
@@ -229,7 +231,7 @@ def test_padding_widens_the_recorded_source_size(sheet, tmp_path, fake_inkscape)
 def test_the_recorded_bounds_start_at_the_padded_corner(sheet, tmp_path, fake_inkscape):
     fake_inkscape(GROUPED_BOXES)
 
-    icons = extractor(padding=5)._extract_from_svg(
+    icons, _warnings = extractor(padding=5)._extract_from_svg(
         sheet(GROUPED_SHEET), tmp_path / "out", {"svg"}, None
     )
 
@@ -240,7 +242,7 @@ def test_the_recorded_bounds_start_at_the_padded_corner(sheet, tmp_path, fake_in
 def test_every_icon_lands_on_the_configured_canvas(sheet, tmp_path, fake_inkscape):
     fake_inkscape(GROUPED_BOXES)
 
-    icons = extractor(output_width=256, output_height=200)._extract_from_svg(
+    icons, _warnings = extractor(output_width=256, output_height=200)._extract_from_svg(
         sheet(GROUPED_SHEET), tmp_path / "out", {"svg"}, None
     )
 
@@ -250,7 +252,7 @@ def test_every_icon_lands_on_the_configured_canvas(sheet, tmp_path, fake_inkscap
 def test_icons_are_numbered_from_one_with_padded_stems(sheet, tmp_path, fake_inkscape):
     fake_inkscape(GROUPED_BOXES)
 
-    icons = extractor()._extract_from_svg(
+    icons, _warnings = extractor()._extract_from_svg(
         sheet(GROUPED_SHEET), tmp_path / "out", {"svg"}, None
     )
 
@@ -277,8 +279,92 @@ def test_progress_covers_detection_and_every_icon(sheet, tmp_path, fake_inkscape
 def test_a_run_without_a_progress_callback_is_fine(sheet, tmp_path, fake_inkscape):
     fake_inkscape(GROUPED_BOXES)
 
-    icons = extractor()._extract_from_svg(
+    icons, _warnings = extractor()._extract_from_svg(
         sheet(GROUPED_SHEET), tmp_path / "out", {"svg"}, None
     )
 
     assert len(icons) == 2
+
+
+# --- the split mode the user chose ----------------------------------------
+
+#: A mosaic proof: every tile touches its neighbour, so the whole sheet is one
+#: connected blob and clustering can only ever return a single icon.
+def _one_blob_proof():
+    proof = np.full((100, 100), 255, dtype=np.uint8)
+    proof[5:95, 5:95] = 0
+    return proof
+
+
+def test_shape_split_gives_every_loose_shape_its_own_icon(sheet, tmp_path, fake_inkscape):
+    """The mosaic case: 417 touching tiles must not become one icon."""
+    calls = fake_inkscape(LOOSE_BOXES)
+
+    icons, _warnings = extractor(svg_split="shape")._extract_from_svg(
+        sheet(LOOSE_SHEET), tmp_path / "out", {"svg"}, None
+    )
+
+    assert len(icons) == 3, "one icon per shape, whatever the pixels say"
+    assert calls["render"] == 0, "structure was asked for; no raster proof is needed"
+
+
+def test_shape_split_writes_one_shape_per_file(sheet, tmp_path, fake_inkscape):
+    fake_inkscape(LOOSE_BOXES)
+
+    icons, _warnings = extractor(svg_split="shape")._extract_from_svg(
+        sheet(LOOSE_SHEET), tmp_path / "out", {"svg"}, None
+    )
+
+    counts = [
+        sum(1 for _ in ET.parse(i.outputs["svg"]).getroot().iter("{http://www.w3.org/2000/svg}rect"))
+        for i in icons
+    ]
+    assert counts == [1, 1, 1]
+
+
+def test_cluster_split_overrides_authored_groups(sheet, tmp_path, fake_inkscape):
+    """The escape hatch the other way: ignore the <g>s and go by pixels."""
+    calls = fake_inkscape(GROUPED_BOXES)
+
+    icons, _warnings = extractor(svg_split="cluster", min_area=50, merge_gap=9)._extract_from_svg(
+        sheet(GROUPED_SHEET), tmp_path / "out", {"svg"}, None
+    )
+
+    assert calls["render"] == 1, "clustering was asked for; the raster proof is needed"
+    assert len(icons) == 2
+
+
+# --- telling the user when clustering swallowed the sheet -----------------
+
+def test_a_collapsed_auto_run_says_so(sheet, tmp_path, fake_inkscape):
+    """Silence here is the original bug: one file, and no idea why."""
+    fake_inkscape(LOOSE_BOXES, proof=_one_blob_proof())
+
+    icons, warnings = extractor(min_area=50, merge_gap=9)._extract_from_svg(
+        sheet(LOOSE_SHEET), tmp_path / "out", {"svg"}, None
+    )
+
+    assert len(icons) == 1
+    assert len(warnings) == 1
+    assert "3 shapes" in warnings[0] and "Every shape" in warnings[0]
+
+
+def test_an_ordinary_cluster_run_stays_quiet(sheet, tmp_path, fake_inkscape):
+    fake_inkscape(LOOSE_BOXES)
+
+    _icons, warnings = extractor(min_area=50, merge_gap=9)._extract_from_svg(
+        sheet(LOOSE_SHEET), tmp_path / "out", {"svg"}, None
+    )
+
+    assert warnings == ()
+
+
+def test_a_chosen_shape_split_never_warns_about_collapsing(sheet, tmp_path, fake_inkscape):
+    """The warning names a mistake; obeying the user is not one."""
+    fake_inkscape(LOOSE_BOXES, proof=_one_blob_proof())
+
+    _icons, warnings = extractor(svg_split="shape")._extract_from_svg(
+        sheet(LOOSE_SHEET), tmp_path / "out", {"svg"}, None
+    )
+
+    assert warnings == ()

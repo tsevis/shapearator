@@ -17,12 +17,14 @@ from services.request_validation import validate_extraction_request
 from services.settings_schema import (
     BITMAP_EXPORT_MODES,
     CANVAS_MODES,
+    SVG_SPLIT_MODES,
     FORMATS,
     PROVIDERS,
 )
 
 # argparse wants lists; the schema module owns the values.
 CANVAS_MODE_CHOICES = list(CANVAS_MODES)
+SVG_SPLIT_CHOICES = list(SVG_SPLIT_MODES)
 BITMAP_EXPORT_MODE_CHOICES = list(BITMAP_EXPORT_MODES)
 FORMAT_CHOICES = list(FORMATS)
 PROVIDER_CHOICES = list(PROVIDERS)
@@ -73,6 +75,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=CANVAS_MODE_CHOICES,
         default=None,
         help="Canvas scaling behavior for exported icons.",
+    )
+    parser.add_argument(
+        "--svg-split",
+        choices=SVG_SPLIT_CHOICES,
+        default=None,
+        help="How to cut an SVG sheet into icons: auto follows the artwork, "
+             "shape gives every element its own file, cluster groups touching "
+             "shapes by pixels.",
     )
     parser.add_argument(
         "--bitmap-export-mode",
@@ -170,6 +180,7 @@ def apply_cli_overrides(settings: AppSettings, args: argparse.Namespace, input_p
         "output_width": args.output_width,
         "output_height": args.output_height,
         "canvas_mode": args.canvas_mode,
+        "svg_split": args.svg_split,
         "bitmap_export_mode": args.bitmap_export_mode,
         "padding": args.padding,
         "min_area": args.min_area,
@@ -235,6 +246,7 @@ def print_run_header(settings: AppSettings, input_path: Path, output_dir: Path, 
     print(f"Formats: {', '.join(sorted(formats))}")
     print(f"Canvas: {settings.output_width}x{settings.output_height} px")
     print(f"Canvas mode: {settings.canvas_mode}")
+    print(f"SVG split: {settings.svg_split}")
     print(f"Bitmap export mode: {settings.bitmap_export_mode}")
     print(f"Provider: {settings.provider}")
     print(f"Detection: {describe_detection_origin(args, settings)}")

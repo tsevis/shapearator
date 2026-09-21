@@ -149,6 +149,40 @@ def is_grouped_artwork(elements: list[ET.Element], threshold: float = 0.5) -> bo
     return containers / len(elements) >= threshold
 
 
+def splits_by_structure(elements: list[ET.Element], mode: str) -> bool:
+    """True when each element is one icon; False to cluster the sheet by pixels.
+
+    ``auto`` defers to :func:`is_grouped_artwork`. The other two modes are the
+    user overriding it, and they exist because the heuristic has one blind
+    spot it cannot see from structure alone: a mosaic or a tessellation is
+    bare paths, so it reads as hand-drawn, and the raster pass then merges
+    every touching tile into a single icon.
+    """
+    if not elements:
+        return False
+    if mode == "shape":
+        return True
+    if mode == "cluster":
+        return False
+    return is_grouped_artwork(elements)
+
+
+def describe_collapsed_split(shape_count: int, icon_count: int) -> tuple[str, ...]:
+    """Warn when clustering swallowed a whole sheet into one icon.
+
+    Returning this as text rather than leaving the run silent is the point: a
+    single output file with no explanation reads as a broken export, not as a
+    detection result the user can change.
+    """
+    if icon_count != 1 or shape_count < 2:
+        return ()
+    return (
+        f"{shape_count} shapes were clustered into a single icon because they "
+        f"touch each other. To keep them apart, split by structure instead: "
+        f"Split > Every shape in an interface, or --svg-split shape.",
+    )
+
+
 def find_icon_elements(root: ET.Element, boxes: dict[str, Box]) -> list[ET.Element]:
     """Return the elements that represent individual icons.
 

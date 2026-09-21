@@ -63,6 +63,8 @@ from .svg_ops import (
     find_icon_elements,
     inject_svg_metadata,
     is_grouped_artwork,
+    splits_by_structure,
+    describe_collapsed_split,
     normalize_svg_to_canvas,
     parse_viewbox,
     query_svg_boxes,
@@ -148,7 +150,10 @@ class IconExtractor:
             if suffix == ".png":
                 icons = self._extract_from_png(input_path, staged, formats, progress_callback)
             else:
-                icons = self._extract_from_svg(input_path, staged, formats, progress_callback)
+                icons, svg_warnings = self._extract_from_svg(
+                    input_path, staged, formats, progress_callback
+                )
+                warnings += svg_warnings
 
             if readiness.proceed:
                 self._emit_progress(progress_callback, "naming", 0, max(1, len(icons)), "Naming icons with local model")
@@ -325,7 +330,7 @@ class IconExtractor:
         output_dir: Path,
         formats: set[str],
         progress_callback: Callable[[ExtractionProgress], None] | None,
-    ) -> list[ExtractedIcon]:
+    ) -> tuple[list[ExtractedIcon], tuple[str, ...]]:
         tree = ET.parse(input_path)
         root = tree.getroot()
         view_box = parse_viewbox(root)
@@ -335,9 +340,11 @@ class IconExtractor:
         element_boxes = self._query_element_boxes(tree)
 
         candidates = find_icon_elements(root, element_boxes)
-        if is_grouped_artwork(candidates):
-            # The artwork says which pieces belong together, so take it at its
-            # word: one group per icon, no detection tuning involved.
+        warnings: tuple[str, ...] = ()
+        if splits_by_structure(candidates, self.settings.svg_split):
+            # The artwork says which pieces belong together -- or the user
+            # overrode it. Either way, take it at its word: one element per
+            # icon, no detection tuning involved.
             grouped_items = [
                 (element_boxes[element.attrib["id"]], [element]) for element in candidates
             ]
@@ -348,6 +355,7 @@ class IconExtractor:
             grouped_items = self._group_svg_children(
                 candidates, element_boxes, raster_groups, raster_shape, view_box
             )
+            warnings = describe_collapsed_split(len(candidates), len(grouped_items))
 
         self._emit_progress(progress_callback, "detect", len(grouped_items), len(grouped_items), f"Detected {len(grouped_items)} icons")
         canvas_size = self._canvas_size()
@@ -375,7 +383,7 @@ class IconExtractor:
             self._emit_progress(progress_callback, "export", index, len(grouped_items), f"Exporting icon {index} of {len(grouped_items)}")
 
         self._prune_empty_dirs(output_dir, formats)
-        return icons
+        return icons, warnings
 
     def _query_element_boxes(self, tree: ET.ElementTree) -> dict[str, Box]:
         """Ask Inkscape for the rendered bounds of every identified element."""
