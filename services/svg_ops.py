@@ -178,8 +178,8 @@ def describe_collapsed_split(shape_count: int, icon_count: int) -> tuple[str, ..
         return ()
     return (
         f"{shape_count} shapes were clustered into a single icon because they "
-        f"touch each other. If they should be separate files, set Split to "
-        f"Every shape and export again.",
+        f"touch each other. To keep them apart, split by structure instead: "
+        f"Split > Every shape in an interface, or --svg-split shape.",
     )
 
 
