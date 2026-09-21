@@ -35,10 +35,29 @@ CANVAS_MODE_LABELS = {
     "individual_fit": "C. Scale each icon individually to fit the canvas while keeping its proportions.",
 }
 
+#: Short enough for the Detection row; the schema value is what gets saved.
+SVG_SPLIT_LABELS = {
+    "auto": "Auto - follow the artwork",
+    "shape": "Every shape its own file",
+    "cluster": "Group shapes that touch",
+}
+
 BITMAP_EXPORT_MODE_LABELS = {
     "keep_background": "A. Keep the original background color and fill the full bitmap canvas with it.",
     "transparent_preserve_interior": "B. Export transparent bitmaps while preserving enclosed white or light interior details.",
 }
+
+def svg_split_key(label: str) -> str:
+    """Map a dropdown label back to the schema value it stands for.
+
+    An unrecognised label means a settings file written by a newer version;
+    falling back to ``auto`` is how every other field degrades.
+    """
+    for key, text in SVG_SPLIT_LABELS.items():
+        if text == label:
+            return key
+    return "auto"
+
 
 class WorkspaceTab(ttk.Frame):
     def __init__(self, parent: ttk.Notebook, settings: AppSettings, on_settings_commit):
@@ -50,6 +69,9 @@ class WorkspaceTab(ttk.Frame):
         self.padding_var = tk.IntVar(value=settings.padding)
         self.min_area_var = tk.IntVar(value=settings.min_area)
         self.merge_gap_var = tk.IntVar(value=settings.merge_gap)
+        self.svg_split_var = tk.StringVar(
+            value=SVG_SPLIT_LABELS.get(settings.svg_split, SVG_SPLIT_LABELS["auto"])
+        )
         self.detection_preset_var = tk.StringVar(value=self._preset_name_for_values())
         self.output_width_var = tk.IntVar(value=settings.output_width)
         self.output_height_var = tk.IntVar(value=settings.output_height)
@@ -120,6 +142,19 @@ class WorkspaceTab(ttk.Frame):
         ttk.Spinbox(detection_card, from_=10, to=5000, textvariable=self.min_area_var, width=8).grid(row=0, column=3, sticky="w", padx=(6, 10))
         ttk.Label(detection_card, text="Merge").grid(row=0, column=4, sticky="w")
         ttk.Spinbox(detection_card, from_=3, to=99, textvariable=self.merge_gap_var, width=6).grid(row=0, column=5, sticky="w", padx=(6, 12))
+        ttk.Label(detection_card, text="Split").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Combobox(
+            detection_card,
+            textvariable=self.svg_split_var,
+            values=list(SVG_SPLIT_LABELS.values()),
+            state="readonly",
+            width=24,
+        ).grid(row=1, column=1, columnspan=3, sticky="w", padx=(6, 10), pady=(8, 0))
+        ttk.Label(
+            detection_card,
+            text="SVG sheets only. Min Area and Merge apply when shapes are grouped.",
+            style="Muted.TLabel",
+        ).grid(row=1, column=4, columnspan=4, sticky="w", pady=(8, 0))
         ttk.Label(detection_card, text="Preset").grid(row=0, column=6, sticky="w")
         preset_combo = ttk.Combobox(
             detection_card,
@@ -315,6 +350,7 @@ class WorkspaceTab(ttk.Frame):
         self.settings.padding = self.padding_var.get()
         self.settings.min_area = self.min_area_var.get()
         self.settings.merge_gap = self.merge_gap_var.get()
+        self.settings.svg_split = svg_split_key(self.svg_split_var.get())
         self.settings.output_width = self.output_width_var.get()
         self.settings.output_height = self.output_height_var.get()
         self.settings.canvas_mode = self.canvas_mode_var.get()

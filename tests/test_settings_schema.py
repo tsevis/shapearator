@@ -46,6 +46,7 @@ def test_invalid_value_falls_back_per_field_and_keeps_valid_siblings():
         ("canvas_mode", "stretch"),
         ("bitmap_export_mode", "magic"),
         ("appearance", "neon"),
+        ("svg_split", "per-shape"),
     ],
 )
 def test_enum_fields_reject_values_outside_the_catalog(field, bad_value):
@@ -54,7 +55,9 @@ def test_enum_fields_reject_values_outside_the_catalog(field, bad_value):
     assert any(field in warning for warning in result.warnings)
 
 
-@pytest.mark.parametrize("field", ["provider", "canvas_mode", "bitmap_export_mode", "appearance"])
+@pytest.mark.parametrize(
+    "field", ["provider", "canvas_mode", "bitmap_export_mode", "appearance", "svg_split"]
+)
 def test_enum_fields_accept_every_documented_choice(field):
     for choice in schema.CHOICES[field]:
         result = schema.coerce_settings({field: choice})
@@ -199,3 +202,8 @@ def test_cli_reuses_the_schema_choice_lists():
     assert cli.CANVAS_MODE_CHOICES == list(schema.CANVAS_MODES)
     assert cli.BITMAP_EXPORT_MODE_CHOICES == list(schema.BITMAP_EXPORT_MODES)
     assert cli.FORMAT_CHOICES == list(schema.FORMATS)
+
+
+def test_svg_split_defaults_to_letting_the_artwork_decide():
+    """Changing this default would silently re-cut everyone's existing sheets."""
+    assert AppSettings().svg_split == "auto"

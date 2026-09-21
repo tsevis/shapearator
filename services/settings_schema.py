@@ -15,6 +15,9 @@ APPEARANCES = ("light", "dark")
 PROVIDERS = ("geometry", "ollama", "llamacpp", "directory")
 CANVAS_MODES = ("original", "uniform_to_largest", "individual_fit")
 BITMAP_EXPORT_MODES = ("keep_background", "transparent_preserve_interior")
+#: How an SVG sheet is cut into icons. "auto" asks the artwork; the other two
+#: are the escape hatches for when it answers wrongly.
+SVG_SPLIT_MODES = ("auto", "shape", "cluster")
 FORMATS = ("png", "jpg", "tiff", "svg")
 
 
@@ -36,6 +39,7 @@ class AppSettings:
     canvas_mode: str = "uniform_to_largest"
     bitmap_export_mode: str = "transparent_preserve_interior"
     padding: int = 12
+    svg_split: str = "auto"
     min_area: int = 200
     merge_gap: int = 13
     last_input_path: str = ""
@@ -47,6 +51,7 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "provider": PROVIDERS,
     "canvas_mode": CANVAS_MODES,
     "bitmap_export_mode": BITMAP_EXPORT_MODES,
+    "svg_split": SVG_SPLIT_MODES,
 }
 
 
