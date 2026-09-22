@@ -60,7 +60,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -c constraints.txt
-          pip install -c constraints.txt pytest
+          # psd-tools is the independent reader the PSD writer is tested against.
+          # Test-only: the app bundles the writer, never a reader.
+          pip install -c constraints.txt pytest psd-tools
 
       - name: Suite
         run: pytest -q -ra
