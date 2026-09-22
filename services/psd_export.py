@@ -83,6 +83,39 @@ def layer_from_render(
                     top=placement.top, left=placement.left)
 
 
+def document_transform(
+    layout: str,
+    source_bounds: tuple[int, int, int, int],
+    source_size: tuple[int, int],
+    canvas_size: tuple[int, int],
+    canvas_mode: str,
+    uniform_scale: float,
+) -> tuple[float, tuple[float, float]]:
+    """How to move a shape's own geometry into the document's coordinates.
+
+    In the sheet layout the artwork's coordinates *are* the document's, so
+    nothing moves. In the canvas layout the shape is scaled and centred
+    exactly as its single-file export is, and this reproduces that placement
+    from the same numbers rather than guessing at it.
+    """
+    if layout == "sheet":
+        return 1.0, (0.0, 0.0)
+
+    target_w, target_h = canvas_size
+    source_w, source_h = max(1, source_size[0]), max(1, source_size[1])
+    if canvas_mode == "uniform_to_largest":
+        scale = uniform_scale
+    elif canvas_mode == "individual_fit":
+        scale = min(target_w / source_w, target_h / source_h)
+    else:
+        scale = 1.0
+
+    offset_x = (target_w - source_w * scale) / 2.0
+    offset_y = (target_h - source_h * scale) / 2.0
+    # The fragment's origin is the padded box corner, not the sheet's.
+    return scale, (offset_x - source_bounds[0] * scale, offset_y - source_bounds[1] * scale)
+
+
 def document_size(layout: str, sheet_size: tuple[int, int], canvas_size: tuple[int, int]) -> tuple[int, int]:
     """How big the PSD is, which the layout decides rather than the settings.
 

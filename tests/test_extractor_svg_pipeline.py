@@ -473,3 +473,49 @@ def test_a_psd_where_everything_drew_says_nothing(sheet, tmp_path, fake_inkscape
         sheet(GROUPED_SHEET), tmp_path / "out", {"psd"}, None)
 
     assert warnings == ()
+
+
+def _path_names(psd_path):
+    from psd_tools import PSDImage
+    resources = PSDImage.open(psd_path).image_resources
+    return {resources[key].name for key in resources
+            if 2000 <= int(key) <= 2997}
+
+
+def test_bitmap_paths_puts_every_shape_in_the_paths_panel(sheet, tmp_path, fake_inkscape):
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    extractor(psd_layers="bitmap_paths")._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    assert _path_names(out / "psd" / "sheet.psd") == {"icon_001", "icon_002"}
+
+
+def test_plain_bitmap_layers_carry_no_paths(sheet, tmp_path, fake_inkscape):
+    """Paths cost geometry and file size; only the mode that asked pays."""
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    extractor(psd_layers="bitmap")._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    assert _path_names(out / "psd" / "sheet.psd") == set()
+
+
+def test_a_path_lands_where_the_shape_is(sheet, tmp_path, fake_inkscape):
+    """A rect at 10,10 in a 100pt sheet is a tenth of the way in."""
+    from psd_tools import PSDImage
+    from services import psd_vector
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    extractor(psd_layers="bitmap_paths", psd_layout="sheet")._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    resources = PSDImage.open(out / "psd" / "sheet.psd").image_resources
+    blob = next(resources.get_data(int(k)) for k in resources
+                if 2000 <= int(k) <= 2997 and resources[int(k)].name == "icon_001")
+    anchors = [psd_vector.read_knot(blob, i).anchor for i in range(1, 5)]
+    assert min(v for v, _h in anchors) == pytest.approx(0.10, abs=0.01)
+    assert min(h for _v, h in anchors) == pytest.approx(0.10, abs=0.01)

@@ -55,7 +55,7 @@ from .semantic_naming import (
     naming_requested,
     slugify,
 )
-from . import psd_export
+from . import psd_export, psd_vector, svg_paths
 from .psd_writer import PsdLayer, write_psd
 from .svg_ops import (
     build_parent_map,
@@ -89,6 +89,50 @@ __all__ = [
 ]
 
 APP_VERSION = "0.4.12"
+
+
+def _element_subpaths(element: ET.Element) -> tuple:
+    """The outline of one drawable, or nothing when it has no readable one.
+
+    A group's outline is its children's, which is why this descends: the split
+    modes hand back whichever level the artwork calls an icon, and for a
+    designer's icon set that level is a `<g>`.
+
+    Anything carrying its own transform is skipped. The geometry would land
+    somewhere other than where the pixels are, and a path in the wrong place
+    is worse than no path at all.
+    """
+    if element.get("transform"):
+        return ()
+    tag = element.tag.split("}")[-1]
+    if tag in ("g", "a", "svg"):
+        collected: tuple = ()
+        for child in element:
+            if isinstance(child.tag, str):
+                collected += _element_subpaths(child)
+        return collected
+    if tag == "path":
+        return svg_paths.parse_path_data(element.get("d", ""))
+    if tag in ("polygon", "polyline"):
+        return svg_paths.parse_points(element.get("points", ""), closed=(tag == "polygon"))
+    if tag == "rect":
+        return svg_paths.parse_rect(*(_number(element, key) for key in ("x", "y", "width", "height")))
+    if tag == "circle":
+        radius = _number(element, "r")
+        return svg_paths.parse_ellipse(_number(element, "cx"), _number(element, "cy"), radius, radius)
+    if tag == "ellipse":
+        return svg_paths.parse_ellipse(*(_number(element, key) for key in ("cx", "cy", "rx", "ry")))
+    if tag == "line":
+        return svg_paths.parse_line(*(_number(element, key) for key in ("x1", "y1", "x2", "y2")))
+    return ()
+
+
+def _number(element: ET.Element, key: str) -> float:
+    """One presentation attribute as a number, defaulting to zero."""
+    try:
+        return float(element.get(key, "0") or 0)
+    except ValueError:
+        return 0.0
 
 
 def _relocate_icon(icon: ExtractedIcon, staging: ExportStaging) -> ExtractedIcon:
@@ -407,7 +451,7 @@ class IconExtractor:
 
         if "psd" in formats:
             warnings += self._write_sheet_psd(
-                input_path, output_dir, icons, parse_viewbox(root),
+                input_path, output_dir, icons, grouped_items, parse_viewbox(root),
                 canvas_size, uniform_scale)
         self._prune_empty_dirs(output_dir, formats)
         return icons, warnings
@@ -584,6 +628,7 @@ class IconExtractor:
         input_path: Path,
         output_dir: Path,
         icons: list[ExtractedIcon],
+        grouped_items: list[tuple[Box, list[ET.Element]]],
         view_box: tuple[float, float, float, float],
         canvas_size: tuple[int, int],
         uniform_scale: float,
@@ -633,7 +678,14 @@ class IconExtractor:
                     continue
                 layers.append(layer)
 
-        write_psd(output_dir / "psd" / f"{input_path.stem}.psd", layers, document)
+        resources = b""
+        if self.settings.psd_layers in ("bitmap_paths", "vector"):
+            resources = psd_vector.path_resources(
+                self._icon_geometry(icons, grouped_items, canvas_size, uniform_scale),
+                document)
+
+        write_psd(output_dir / "psd" / f"{input_path.stem}.psd", layers, document,
+                  extra_resources=resources)
         if not undrawn:
             return ()
         return (
@@ -641,6 +693,27 @@ class IconExtractor:
             f"in the PSD, though their own files were exported: "
             f"{', '.join(undrawn[:8])}{' ...' if len(undrawn) > 8 else ''}.",
         )
+
+    def _icon_geometry(
+        self,
+        icons: list[ExtractedIcon],
+        grouped_items: list[tuple[Box, list[ET.Element]]],
+        canvas_size: tuple[int, int],
+        uniform_scale: float,
+    ) -> list[tuple[str, tuple]]:
+        """Each icon's outline, in the document's coordinates."""
+        named: list[tuple[str, tuple]] = []
+        for icon, (_box, children) in zip(icons, grouped_items):
+            subpaths: tuple = ()
+            for element in children:
+                subpaths += _element_subpaths(element)
+            if not subpaths:
+                continue
+            scale, translate = psd_export.document_transform(
+                self.settings.psd_layout, icon.source_bounds, icon.source_size,
+                canvas_size, self.settings.canvas_mode, uniform_scale)
+            named.append((icon.stem, svg_paths.transform(subpaths, scale, translate)))
+        return named
 
     def _prune_empty_dirs(self, output_dir: Path, formats: set[str]) -> None:
         candidates = ["_work_png", "_work_svg"]
