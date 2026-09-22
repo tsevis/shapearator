@@ -88,7 +88,7 @@ __all__ = [
     "slugify",
 ]
 
-APP_VERSION = "0.4.12"
+APP_VERSION = "0.4.13"
 
 
 def _element_subpaths(element: ET.Element) -> tuple:

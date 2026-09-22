@@ -175,6 +175,8 @@ never tracked and never removed.
 - `--min-area`
 - `--merge-gap`
 - `--svg-split`
+- `--psd-layers`
+- `--psd-layout`
 
 The positional input accepts a folder as well as a single file. Every `.png`
 and `.svg` directly inside it is extracted into its own subfolder of

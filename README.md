@@ -285,6 +285,14 @@ extracted sheet by sheet, each into its own subfolder named after the file, so
 no two sheets' `icon_001` collide. A sheet that cannot be read is reported and
 the run continues.
 
+**Photoshop** — `--formats psd` writes one layered `.psd` per sheet instead of
+one file per shape. `--psd-layout sheet` rebuilds the artwork, document sized to
+the source, every shape in the place it had; `--psd-layout canvas` puts each
+shape on the export canvas the way its single file is exported.
+`--psd-layers bitmap` gives plain pixel layers, `bitmap_paths` adds each
+outline to the Paths panel, and `vector` makes each layer a solid fill behind a
+vector mask -- a shape layer.
+
 **Detection** — `--detection-preset {Balanced,Tiny Details,Loose Sketches,Bold Shapes}`,
 `--padding`, `--min-area`, `--merge-gap`, `--svg-split {auto,shape,cluster}`
 
@@ -385,6 +393,8 @@ anything about the engine.
 | One icon split into several | raise `merge-gap`, or use `Loose Sketches` |
 | A whole SVG sheet came out as one icon | its shapes touch; use `--svg-split shape` |
 | A folder run found nothing | sheets must sit directly in it; subfolders are not searched |
+| A shape is missing from the PSD | it covered no pixel once rasterised; the run names it |
+| A shape has no outline in the PSD | it carries its own `transform`, which this does not follow |
 | Icons inconsistent in scale | use `uniform_to_largest` |
 
 ---
