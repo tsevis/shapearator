@@ -123,6 +123,21 @@ def test_a_later_layer_covers_an_earlier_one_in_the_preview(written):
     assert psd.topil().getpixel((20, 20)) == (0, 0, 255)
 
 
+def test_the_preview_keeps_its_transparency(written):
+    """Otherwise the file opens on a black background instead of nothing.
+
+    `topil` hands back RGB by convention, which hides this; the fourth channel
+    is where the answer is, and getting the composite channel order wrong put
+    the alpha in the red slot without changing the file's size or structure.
+    """
+    psd = PSDImage.open(written([PsdLayer("red", square(20, (255, 0, 0)), top=5, left=5)],
+                                canvas=(64, 64)))
+    channels = psd.numpy()
+    assert channels.shape[-1] == 4, "the composite must carry an alpha channel"
+    assert channels[10, 10, 3] == 1.0
+    assert channels[50, 50, 3] == 0.0
+
+
 # --- refusals -------------------------------------------------------------
 
 def test_an_impossible_canvas_is_refused(tmp_path):
