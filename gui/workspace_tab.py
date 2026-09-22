@@ -37,6 +37,19 @@ CANVAS_MODE_LABELS = {
     "individual_fit": "C. Scale each icon individually to fit the canvas while keeping its proportions.",
 }
 
+#: One layered Photoshop file per sheet. Two questions, two pickers: what a
+#: layer is made of, and where it sits.
+PSD_LAYER_LABELS = {
+    "bitmap": "Bitmap layers",
+    "bitmap_paths": "Bitmap + editable paths",
+    "vector": "Vector shape layers",
+}
+
+PSD_LAYOUT_LABELS = {
+    "sheet": "Rebuild the sheet",
+    "canvas": "Each shape on the export canvas",
+}
+
 #: Short enough for the Detection row; the schema value is what gets saved.
 SVG_SPLIT_LABELS = {
     "auto": "Auto - follow the artwork",
@@ -48,6 +61,26 @@ BITMAP_EXPORT_MODE_LABELS = {
     "keep_background": "A. Keep the original background color and fill the full bitmap canvas with it.",
     "transparent_preserve_interior": "B. Export transparent bitmaps while preserving enclosed white or light interior details.",
 }
+
+def _key_for(labels: dict[str, str], label: str, fallback: str) -> str:
+    """Map a dropdown label back to the schema value it stands for.
+
+    An unrecognised label means a settings file written by a newer version;
+    falling back is how every other field degrades.
+    """
+    for key, text in labels.items():
+        if text == label:
+            return key
+    return fallback
+
+
+def psd_layers_key(label: str) -> str:
+    return _key_for(PSD_LAYER_LABELS, label, "bitmap")
+
+
+def psd_layout_key(label: str) -> str:
+    return _key_for(PSD_LAYOUT_LABELS, label, "sheet")
+
 
 def svg_split_key(label: str) -> str:
     """Map a dropdown label back to the schema value it stands for.
@@ -92,6 +125,11 @@ class WorkspaceTab(ttk.Frame):
         self.export_jpg_var = tk.BooleanVar(value="jpg" in settings.default_formats)
         self.export_tiff_var = tk.BooleanVar(value="tiff" in settings.default_formats)
         self.export_svg_var = tk.BooleanVar(value="svg" in settings.default_formats)
+        self.export_psd_var = tk.BooleanVar(value="psd" in settings.default_formats)
+        self.psd_layers_var = tk.StringVar(
+            value=PSD_LAYER_LABELS.get(settings.psd_layers, PSD_LAYER_LABELS["bitmap"]))
+        self.psd_layout_var = tk.StringVar(
+            value=PSD_LAYOUT_LABELS.get(settings.psd_layout, PSD_LAYOUT_LABELS["sheet"]))
         self.preview_photo = None
         self.preview_cache_dir = Path(tempfile.mkdtemp(prefix="shapearator_preview_"))
         self.current_result: ExtractionResult | None = None
@@ -205,6 +243,25 @@ class WorkspaceTab(ttk.Frame):
         ttk.Checkbutton(formats_card, text="JPG", variable=self.export_jpg_var).pack(side="left", padx=(12, 0))
         ttk.Checkbutton(formats_card, text="TIFF", variable=self.export_tiff_var).pack(side="left", padx=(12, 0))
         ttk.Checkbutton(formats_card, text="SVG", variable=self.export_svg_var).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(formats_card, text="PSD", variable=self.export_psd_var).pack(side="left", padx=(12, 0))
+
+        psd_card = ttk.LabelFrame(output_left, text="Photoshop File", padding=10)
+        psd_card.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        psd_card.columnconfigure(1, weight=1)
+        ttk.Label(psd_card, text="Layers").grid(row=0, column=0, sticky="w")
+        ttk.Combobox(psd_card, textvariable=self.psd_layers_var, state="readonly",
+                     values=list(PSD_LAYER_LABELS.values()), width=26).grid(
+            row=0, column=1, sticky="w", padx=(8, 0))
+        ttk.Label(psd_card, text="Layout").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Combobox(psd_card, textvariable=self.psd_layout_var, state="readonly",
+                     values=list(PSD_LAYOUT_LABELS.values()), width=26).grid(
+            row=1, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+        ttk.Label(
+            psd_card,
+            text="One file per sheet, one layer per shape. Rebuilding the sheet ignores "
+                 "the canvas above, because the document takes the artwork's size.",
+            style="Muted.TLabel", wraplength=360, justify="left",
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
         canvas_card = ttk.LabelFrame(output_left, text="Common Output Canvas", padding=10)
         canvas_card.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
@@ -350,6 +407,8 @@ class WorkspaceTab(ttk.Frame):
             formats.add("tiff")
         if self.export_svg_var.get():
             formats.add("svg")
+        if self.export_psd_var.get():
+            formats.add("psd")
         return formats
 
     def _start_extraction(self) -> None:
@@ -375,6 +434,8 @@ class WorkspaceTab(ttk.Frame):
         self.settings.min_area = self.min_area_var.get()
         self.settings.merge_gap = self.merge_gap_var.get()
         self.settings.svg_split = svg_split_key(self.svg_split_var.get())
+        self.settings.psd_layers = psd_layers_key(self.psd_layers_var.get())
+        self.settings.psd_layout = psd_layout_key(self.psd_layout_var.get())
         self.settings.output_width = self.output_width_var.get()
         self.settings.output_height = self.output_height_var.get()
         self.settings.canvas_mode = self.canvas_mode_var.get()

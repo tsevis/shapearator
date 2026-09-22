@@ -88,7 +88,9 @@ def fake_inkscape(monkeypatch):
         def fake_export(src, dst):
             calls["export"].append((Path(src).name, Path(dst).name))
             Path(dst).parent.mkdir(parents=True, exist_ok=True)
-            Image.new("RGBA", (64, 64), (0, 0, 0, 255)).save(dst)
+            blank = any(stem in Path(src).name for stem in calls.get("blank", ()))
+            fill = (0, 0, 0, 0) if blank else (0, 0, 0, 255)
+            Image.new("RGBA", (64, 64), fill).save(dst)
 
         monkeypatch.setattr(ex, "query_svg_boxes", fake_query)
         monkeypatch.setattr(ex, "render_svg_to_png", fake_render)
@@ -443,3 +445,31 @@ def test_psd_and_svg_can_be_asked_for_together(sheet, tmp_path, fake_inkscape):
 
     assert (out / "psd" / "sheet.psd").exists()
     assert all(icon.outputs["svg"].exists() for icon in icons)
+
+
+def test_a_shape_that_rasterises_to_nothing_is_reported_not_dropped(sheet, tmp_path, fake_inkscape):
+    """A degenerate 1pt path is a real thing in real artwork.
+
+    It cannot become a layer -- PSD has no zero-area layer -- but a sheet that
+    exported 36 files and produced 35 layers, saying nothing, is the silent
+    loss this whole format is supposed to avoid.
+    """
+    calls = fake_inkscape(GROUPED_BOXES)
+    calls["blank"] = ("icon_002",)
+    out = tmp_path / "out"
+
+    icons, warnings = extractor()._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    assert len(icons) == 2
+    assert len(_psd_layers(out / "psd" / "sheet.psd")) == 1
+    assert any("icon_002" in warning for warning in warnings), warnings
+
+
+def test_a_psd_where_everything_drew_says_nothing(sheet, tmp_path, fake_inkscape):
+    fake_inkscape(GROUPED_BOXES)
+
+    _icons, warnings = extractor()._extract_from_svg(
+        sheet(GROUPED_SHEET), tmp_path / "out", {"psd"}, None)
+
+    assert warnings == ()

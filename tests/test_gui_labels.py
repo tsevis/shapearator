@@ -19,10 +19,20 @@ from gui.workspace_tab import (
     BITMAP_EXPORT_MODE_LABELS,
     CANVAS_MODE_LABELS,
     SVG_SPLIT_LABELS,
+    PSD_LAYER_LABELS,
+    PSD_LAYOUT_LABELS,
+    psd_layers_key,
+    psd_layout_key,
     svg_split_key,
 )
 from services import detection_presets
-from services.settings_schema import BITMAP_EXPORT_MODES, CANVAS_MODES, SVG_SPLIT_MODES
+from services.settings_schema import (
+    BITMAP_EXPORT_MODES,
+    CANVAS_MODES,
+    PSD_LAYER_MODES,
+    PSD_LAYOUTS,
+    SVG_SPLIT_MODES,
+)
 
 
 # --- schema parity --------------------------------------------------------
@@ -49,14 +59,36 @@ def test_an_unknown_split_label_falls_back_to_auto():
     assert svg_split_key("something a future version offered") == "auto"
 
 
+def test_every_psd_layer_mode_is_offered_exactly_once():
+    assert set(PSD_LAYER_LABELS) == set(PSD_LAYER_MODES)
+
+
+def test_every_psd_layout_is_offered_exactly_once():
+    assert set(PSD_LAYOUT_LABELS) == set(PSD_LAYOUTS)
+
+
+def test_a_psd_label_maps_back_to_its_schema_value():
+    for key, label in PSD_LAYER_LABELS.items():
+        assert psd_layers_key(label) == key
+    for key, label in PSD_LAYOUT_LABELS.items():
+        assert psd_layout_key(label) == key
+
+
+def test_an_unknown_psd_label_falls_back_to_the_default():
+    assert psd_layers_key("something a future version offered") == "bitmap"
+    assert psd_layout_key("something a future version offered") == "sheet"
+
+
 def test_no_label_is_blank():
-    for labels in (CANVAS_MODE_LABELS, BITMAP_EXPORT_MODE_LABELS, SVG_SPLIT_LABELS):
+    for labels in (CANVAS_MODE_LABELS, BITMAP_EXPORT_MODE_LABELS, SVG_SPLIT_LABELS,
+                   PSD_LAYER_LABELS, PSD_LAYOUT_LABELS):
         for key, label in labels.items():
             assert label.strip(), f"{key} has no label text"
 
 
 def test_labels_are_distinguishable_in_a_dropdown():
-    for labels in (CANVAS_MODE_LABELS, BITMAP_EXPORT_MODE_LABELS, SVG_SPLIT_LABELS):
+    for labels in (CANVAS_MODE_LABELS, BITMAP_EXPORT_MODE_LABELS, SVG_SPLIT_LABELS,
+                   PSD_LAYER_LABELS, PSD_LAYOUT_LABELS):
         assert len(set(labels.values())) == len(labels)
 
 

@@ -19,6 +19,8 @@ from services.settings_schema import (
     BITMAP_EXPORT_MODES,
     CANVAS_MODES,
     SVG_SPLIT_MODES,
+    PSD_LAYER_MODES,
+    PSD_LAYOUTS,
     FORMATS,
     PROVIDERS,
 )
@@ -26,6 +28,8 @@ from services.settings_schema import (
 # argparse wants lists; the schema module owns the values.
 CANVAS_MODE_CHOICES = list(CANVAS_MODES)
 SVG_SPLIT_CHOICES = list(SVG_SPLIT_MODES)
+PSD_LAYER_CHOICES = list(PSD_LAYER_MODES)
+PSD_LAYOUT_CHOICES = list(PSD_LAYOUTS)
 BITMAP_EXPORT_MODE_CHOICES = list(BITMAP_EXPORT_MODES)
 FORMAT_CHOICES = list(FORMATS)
 PROVIDER_CHOICES = list(PROVIDERS)
@@ -76,6 +80,20 @@ def build_parser() -> argparse.ArgumentParser:
         choices=CANVAS_MODE_CHOICES,
         default=None,
         help="Canvas scaling behavior for exported icons.",
+    )
+    parser.add_argument(
+        "--psd-layers",
+        choices=PSD_LAYER_CHOICES,
+        default=None,
+        help="What each layer of an exported PSD is made of.",
+    )
+    parser.add_argument(
+        "--psd-layout",
+        choices=PSD_LAYOUT_CHOICES,
+        default=None,
+        help="Where each PSD layer sits: shape rebuilds the sheet with every "
+             "shape in its original place, canvas puts each one on the export "
+             "canvas as the single files are exported.",
     )
     parser.add_argument(
         "--svg-split",
@@ -182,6 +200,8 @@ def apply_cli_overrides(settings: AppSettings, args: argparse.Namespace, input_p
         "output_height": args.output_height,
         "canvas_mode": args.canvas_mode,
         "svg_split": args.svg_split,
+        "psd_layers": args.psd_layers,
+        "psd_layout": args.psd_layout,
         "bitmap_export_mode": args.bitmap_export_mode,
         "padding": args.padding,
         "min_area": args.min_area,
@@ -248,6 +268,8 @@ def print_run_header(settings: AppSettings, input_path: Path, output_dir: Path, 
     print(f"Canvas: {settings.output_width}x{settings.output_height} px")
     print(f"Canvas mode: {settings.canvas_mode}")
     print(f"SVG split: {settings.svg_split}")
+    if "psd" in formats:
+        print(f"PSD: {settings.psd_layers} layers, {settings.psd_layout} layout")
     print(f"Bitmap export mode: {settings.bitmap_export_mode}")
     print(f"Provider: {settings.provider}")
     print(f"Detection: {describe_detection_origin(args, settings)}")

@@ -406,7 +406,7 @@ class IconExtractor:
             self._emit_progress(progress_callback, "export", index, len(grouped_items), f"Exporting icon {index} of {len(grouped_items)}")
 
         if "psd" in formats:
-            self._write_sheet_psd(
+            warnings += self._write_sheet_psd(
                 input_path, output_dir, icons, parse_viewbox(root),
                 canvas_size, uniform_scale)
         self._prune_empty_dirs(output_dir, formats)
@@ -587,7 +587,7 @@ class IconExtractor:
         view_box: tuple[float, float, float, float],
         canvas_size: tuple[int, int],
         uniform_scale: float,
-    ) -> None:
+    ) -> tuple[str, ...]:
         """One Photoshop file for the sheet, one layer per icon.
 
         Built from the fragments rather than the exported files: the single
@@ -597,11 +597,13 @@ class IconExtractor:
         sheet_size = (max(1, int(round(view_box[2]))), max(1, int(round(view_box[3]))))
         document = psd_export.document_size(self.settings.psd_layout, sheet_size, canvas_size)
         layers: list[PsdLayer] = []
+        undrawn: list[str] = []
 
         with tempfile.TemporaryDirectory(prefix="shapearator_psd_") as temp_dir:
             for icon in icons:
                 fragment = output_dir / "_work_svg" / f"{icon.stem}.svg"
                 if not fragment.exists():
+                    undrawn.append(icon.stem)
                     continue
                 rendered = Path(temp_dir) / f"{icon.stem}.png"
                 if self.settings.psd_layout == "sheet":
@@ -618,13 +620,27 @@ class IconExtractor:
                 try:
                     export_svg_to_png(source, rendered)
                 except Exception:
-                    continue    # a shape that will not rasterise is not a layer
+                    undrawn.append(icon.stem)
+                    continue
                 layer = psd_export.layer_from_render(
                     icon.stem, rendered, top=top, left=left, scale_to=scale_to)
-                if layer is not None:
-                    layers.append(layer)
+                if layer is None:
+                    # A path barely a point across covers no pixel once
+                    # rasterised, and PSD has no zero-area layer. Saying so is
+                    # the difference between a known omission and a file that
+                    # is quietly one layer short of its own export.
+                    undrawn.append(icon.stem)
+                    continue
+                layers.append(layer)
 
         write_psd(output_dir / "psd" / f"{input_path.stem}.psd", layers, document)
+        if not undrawn:
+            return ()
+        return (
+            f"{len(undrawn)} shape(s) covered no pixel once rasterised and are not "
+            f"in the PSD, though their own files were exported: "
+            f"{', '.join(undrawn[:8])}{' ...' if len(undrawn) > 8 else ''}.",
+        )
 
     def _prune_empty_dirs(self, output_dir: Path, formats: set[str]) -> None:
         candidates = ["_work_png", "_work_svg"]
