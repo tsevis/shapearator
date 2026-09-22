@@ -47,6 +47,8 @@ def test_invalid_value_falls_back_per_field_and_keeps_valid_siblings():
         ("bitmap_export_mode", "magic"),
         ("appearance", "neon"),
         ("svg_split", "per-shape"),
+        ("psd_layers", "smart-objects"),
+        ("psd_layout", "wherever"),
     ],
 )
 def test_enum_fields_reject_values_outside_the_catalog(field, bad_value):
@@ -56,7 +58,9 @@ def test_enum_fields_reject_values_outside_the_catalog(field, bad_value):
 
 
 @pytest.mark.parametrize(
-    "field", ["provider", "canvas_mode", "bitmap_export_mode", "appearance", "svg_split"]
+    "field",
+    ["provider", "canvas_mode", "bitmap_export_mode", "appearance", "svg_split",
+     "psd_layers", "psd_layout"]
 )
 def test_enum_fields_accept_every_documented_choice(field):
     for choice in schema.CHOICES[field]:
@@ -207,3 +211,18 @@ def test_cli_reuses_the_schema_choice_lists():
 def test_svg_split_defaults_to_letting_the_artwork_decide():
     """Changing this default would silently re-cut everyone's existing sheets."""
     assert AppSettings().svg_split == "auto"
+
+
+# --- exporting one layered Photoshop file ---------------------------------
+
+def test_psd_is_an_export_format():
+    result = schema.coerce_settings({"default_formats": ["psd"]})
+    assert result.settings.default_formats == ["psd"]
+    assert result.warnings == []
+
+
+def test_psd_settings_default_to_the_useful_answer():
+    """A PSD nobody configured should open as the sheet, layer per shape."""
+    defaults = AppSettings()
+    assert defaults.psd_layers == "bitmap"
+    assert defaults.psd_layout == "sheet"

@@ -55,6 +55,8 @@ from .semantic_naming import (
     naming_requested,
     slugify,
 )
+from . import psd_export
+from .psd_writer import PsdLayer, write_psd
 from .svg_ops import (
     build_parent_map,
     build_svg_fragment,
@@ -403,6 +405,10 @@ class IconExtractor:
             )
             self._emit_progress(progress_callback, "export", index, len(grouped_items), f"Exporting icon {index} of {len(grouped_items)}")
 
+        if "psd" in formats:
+            self._write_sheet_psd(
+                input_path, output_dir, icons, parse_viewbox(root),
+                canvas_size, uniform_scale)
         self._prune_empty_dirs(output_dir, formats)
         return icons, warnings
 
@@ -519,11 +525,15 @@ class IconExtractor:
         outputs: dict[str, Path] = {}
         raw_svg_path = output_dir / "_work_svg" / f"{stem}.svg"
         wants_bitmap = any(fmt in formats for fmt in ("png", "jpg", "tiff"))
+        # The PSD rasterises the fragment too, and keeps it until the file is
+        # assembled -- a psd-only run would otherwise build nothing to draw.
+        wants_psd = "psd" in formats
         wrote_intermediate_svg = False
 
-        if "svg" in formats or wants_bitmap:
+        if "svg" in formats or wants_bitmap or wants_psd:
             raw_svg_path.parent.mkdir(parents=True, exist_ok=True)
             build_svg_fragment(root, children, box, self.settings.padding, raw_svg_path, parents)
+            wrote_intermediate_svg = "svg" not in formats
             if "svg" in formats:
                 final_svg_path = output_dir / "svg" / f"{stem}.svg"
                 final_svg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -535,8 +545,6 @@ class IconExtractor:
                     uniform_scale=uniform_scale,
                 )
                 outputs["svg"] = final_svg_path
-            else:
-                wrote_intermediate_svg = True
 
         preview: Path | None = None
         if wants_bitmap:
@@ -555,7 +563,7 @@ class IconExtractor:
             )
             preview = outputs.get("png") or outputs.get("jpg") or outputs.get("tiff")
             temp_png.unlink(missing_ok=True)
-        if wrote_intermediate_svg:
+        if wrote_intermediate_svg and not wants_psd:
             raw_svg_path.unlink(missing_ok=True)
 
         padded_w = box.w + self.settings.padding * 2
@@ -571,8 +579,57 @@ class IconExtractor:
             vector_mode=self._vector_mode_for_svg_source(outputs),
         )
 
+    def _write_sheet_psd(
+        self,
+        input_path: Path,
+        output_dir: Path,
+        icons: list[ExtractedIcon],
+        view_box: tuple[float, float, float, float],
+        canvas_size: tuple[int, int],
+        uniform_scale: float,
+    ) -> None:
+        """One Photoshop file for the sheet, one layer per icon.
+
+        Built from the fragments rather than the exported files: the single
+        files are normalized onto the export canvas, and the sheet layout
+        needs each shape at the size and place it had in the artwork.
+        """
+        sheet_size = (max(1, int(round(view_box[2]))), max(1, int(round(view_box[3]))))
+        document = psd_export.document_size(self.settings.psd_layout, sheet_size, canvas_size)
+        layers: list[PsdLayer] = []
+
+        with tempfile.TemporaryDirectory(prefix="shapearator_psd_") as temp_dir:
+            for icon in icons:
+                fragment = output_dir / "_work_svg" / f"{icon.stem}.svg"
+                if not fragment.exists():
+                    continue
+                rendered = Path(temp_dir) / f"{icon.stem}.png"
+                if self.settings.psd_layout == "sheet":
+                    source = fragment
+                    scale_to = icon.source_size
+                    top, left = int(icon.source_bounds[1]), int(icon.source_bounds[0])
+                else:
+                    source = Path(temp_dir) / f"{icon.stem}.svg"
+                    normalize_svg_to_canvas(
+                        fragment, source, canvas_size,
+                        self.settings.canvas_mode, uniform_scale=uniform_scale)
+                    scale_to = canvas_size
+                    top = left = 0
+                try:
+                    export_svg_to_png(source, rendered)
+                except Exception:
+                    continue    # a shape that will not rasterise is not a layer
+                layer = psd_export.layer_from_render(
+                    icon.stem, rendered, top=top, left=left, scale_to=scale_to)
+                if layer is not None:
+                    layers.append(layer)
+
+        write_psd(output_dir / "psd" / f"{input_path.stem}.psd", layers, document)
+
     def _prune_empty_dirs(self, output_dir: Path, formats: set[str]) -> None:
         candidates = ["_work_png", "_work_svg"]
+        if "psd" not in formats:
+            candidates.append("psd")
         if "png" not in formats:
             candidates.append("png")
         if "svg" not in formats:

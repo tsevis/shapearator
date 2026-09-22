@@ -368,3 +368,78 @@ def test_a_chosen_shape_split_never_warns_about_collapsing(sheet, tmp_path, fake
     )
 
     assert warnings == ()
+
+
+# --- one layered Photoshop file per sheet ---------------------------------
+
+def _psd_layers(path):
+    from psd_tools import PSDImage
+    return [(l.name, l.offset, l.size) for l in PSDImage.open(path)]
+
+
+def test_a_psd_run_writes_one_file_holding_every_icon(sheet, tmp_path, fake_inkscape):
+    """The point of the format: forty files become one, forty layers deep."""
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    icons, _warnings = extractor()._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    written = out / "psd" / "sheet.psd"
+    assert written.exists(), sorted(p.name for p in out.iterdir())
+    assert len(_psd_layers(written)) == len(icons) == 2
+
+
+def test_the_sheet_layout_keeps_each_shape_where_it_was(sheet, tmp_path, fake_inkscape):
+    """Stacked in the middle you would have to move every layer by hand."""
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    extractor(psd_layout="sheet", padding=0)._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    offsets = {name: offset for name, offset, _size in _psd_layers(out / "psd" / "sheet.psd")}
+    assert offsets["icon_001"] == (GROUPED_BOXES["i1"].x, GROUPED_BOXES["i1"].y)
+    assert offsets["icon_002"] == (GROUPED_BOXES["i2"].x, GROUPED_BOXES["i2"].y)
+
+
+def test_the_sheet_layout_makes_a_document_the_size_of_the_artwork(sheet, tmp_path, fake_inkscape):
+    from psd_tools import PSDImage
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    extractor(psd_layout="sheet", output_width=999, output_height=777)._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    assert PSDImage.open(out / "psd" / "sheet.psd").size == (100, 100), "the sheet's viewBox"
+
+
+def test_the_canvas_layout_makes_a_document_the_size_of_the_export_canvas(sheet, tmp_path, fake_inkscape):
+    from psd_tools import PSDImage
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    extractor(psd_layout="canvas", output_width=300, output_height=200)._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    assert PSDImage.open(out / "psd" / "sheet.psd").size == (300, 200)
+
+
+def test_a_run_without_psd_writes_no_psd_folder(sheet, tmp_path, fake_inkscape):
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    extractor()._extract_from_svg(sheet(GROUPED_SHEET), out, {"svg"}, None)
+
+    assert not (out / "psd").exists()
+
+
+def test_psd_and_svg_can_be_asked_for_together(sheet, tmp_path, fake_inkscape):
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    icons, _warnings = extractor()._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd", "svg"}, None)
+
+    assert (out / "psd" / "sheet.psd").exists()
+    assert all(icon.outputs["svg"].exists() for icon in icons)

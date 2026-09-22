@@ -18,7 +18,13 @@ BITMAP_EXPORT_MODES = ("keep_background", "transparent_preserve_interior")
 #: How an SVG sheet is cut into icons. "auto" asks the artwork; the other two
 #: are the escape hatches for when it answers wrongly.
 SVG_SPLIT_MODES = ("auto", "shape", "cluster")
-FORMATS = ("png", "jpg", "tiff", "svg")
+#: What each layer of an exported PSD is made of.
+PSD_LAYER_MODES = ("bitmap", "bitmap_paths", "vector")
+#: Where each layer sits. "sheet" rebuilds the artwork with one layer per
+#: shape; "canvas" puts every shape on the export canvas, as the single
+#: files are exported, which stacks them all in the middle.
+PSD_LAYOUTS = ("sheet", "canvas")
+FORMATS = ("png", "jpg", "tiff", "svg", "psd")
 
 
 @dataclass
@@ -40,6 +46,8 @@ class AppSettings:
     bitmap_export_mode: str = "transparent_preserve_interior"
     padding: int = 12
     svg_split: str = "auto"
+    psd_layers: str = "bitmap"
+    psd_layout: str = "sheet"
     min_area: int = 200
     merge_gap: int = 13
     last_input_path: str = ""
@@ -52,6 +60,8 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "canvas_mode": CANVAS_MODES,
     "bitmap_export_mode": BITMAP_EXPORT_MODES,
     "svg_split": SVG_SPLIT_MODES,
+    "psd_layers": PSD_LAYER_MODES,
+    "psd_layout": PSD_LAYOUTS,
 }
 
 
