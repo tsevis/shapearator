@@ -120,3 +120,54 @@ def test_more_paths_than_the_format_holds_are_dropped_not_corrupted(tmp_path):
     ids = psd_vector.resource_ids(resources)
     assert len(ids) == psd_vector.PATH_RESOURCE_LAST - psd_vector.PATH_RESOURCE_FIRST + 1
     assert max(ids) == psd_vector.PATH_RESOURCE_LAST
+
+
+# --- shape layers ---------------------------------------------------------
+
+def test_a_vector_mask_block_is_tagged_vmsk():
+    blocks = psd_vector.shape_layer_blocks(rectangle(0, 0, 10, 10), (100, 100), (255, 0, 0))
+    assert b"8BIMvmsk" in blocks
+
+
+def test_a_shape_layer_carries_its_fill_colour():
+    blocks = psd_vector.shape_layer_blocks(rectangle(0, 0, 10, 10), (100, 100), (12, 34, 56))
+    assert b"8BIMSoCo" in blocks
+
+
+def test_the_fill_colour_survives_the_descriptor():
+    blocks = psd_vector.shape_layer_blocks(rectangle(0, 0, 10, 10), (100, 100), (12, 34, 56))
+    assert psd_vector.read_solid_colour(blocks) == pytest.approx((12.0, 34.0, 56.0), abs=0.5)
+
+
+def test_the_mask_holds_the_same_records_a_path_resource_would():
+    subpaths = rectangle(10, 10, 30, 30)
+    blocks = psd_vector.shape_layer_blocks(subpaths, (100, 100), (0, 0, 0))
+    assert psd_vector.path_records(subpaths, (100, 100)) in blocks
+
+
+def test_geometry_that_parsed_to_nothing_makes_no_shape_layer():
+    assert psd_vector.shape_layer_blocks((), (100, 100), (0, 0, 0)) == b""
+
+
+def test_a_shape_layer_reads_back_as_a_fill_behind_a_vector_mask(tmp_path):
+    """Which is what Photoshop calls a shape layer.
+
+    psd-tools splits the two names differently -- it keeps `ShapeLayer` for a
+    vector mask with no fill and calls this one `solidcolorfill` -- so the
+    test asserts the two facts rather than either library's word for them.
+    """
+    out = tmp_path / "shape.psd"
+    blocks = psd_vector.shape_layer_blocks(rectangle(10, 10, 30, 30), (100, 100), (200, 30, 40))
+    write_psd(out, [PsdLayer("brick_001", square_rgba(30), top=10, left=10)], (100, 100),
+              layer_extras=[blocks])
+
+    layer = list(PSDImage.open(out))[0]
+    assert layer.kind == "solidcolorfill", layer.kind
+    assert layer.has_vector_mask()
+    assert len(layer.vector_mask.paths) == 1
+
+
+def test_a_plain_layer_has_no_vector_mask(tmp_path):
+    out = tmp_path / "plain.psd"
+    write_psd(out, [PsdLayer("brick_001", square_rgba(30))], (100, 100))
+    assert not list(PSDImage.open(out))[0].has_vector_mask()

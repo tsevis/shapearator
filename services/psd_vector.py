@@ -97,6 +97,73 @@ def path_resources(
     return b"".join(blocks)
 
 
+def shape_layer_blocks(
+    subpaths: tuple[Subpath, ...], document: tuple[int, int], colour: tuple[int, int, int]
+) -> bytes:
+    """The two blocks that turn a pixel layer into a shape layer.
+
+    A shape layer in Photoshop is a solid-colour fill clipped by a vector
+    mask, and both halves are additional layer information: `vmsk` holds the
+    outline, `SoCo` the fill. A layer with only the mask reads as a pixel
+    layer that happens to have a vector mask -- close, but not the thing.
+    """
+    records = path_records(subpaths, document)
+    if not records:
+        return b""
+    # Version 3, flags 1: the mask is used, not disabled and not inverted.
+    mask = struct.pack(">II", 3, 1) + records
+    return _layer_block(b"SoCo", _solid_colour_descriptor(colour)) + _layer_block(b"vmsk", mask)
+
+
+def read_solid_colour(blocks: bytes) -> tuple[float, float, float] | None:
+    """The RGB a `SoCo` block carries, for checking what was written."""
+    marker = _BLOCK_SIGNATURE + b"SoCo"
+    start = blocks.find(marker)
+    if start < 0:
+        return None
+    channels: list[float] = []
+    for key in (b"Rd  ", b"Grn ", b"Bl  "):
+        at = blocks.find(key + b"doub", start)
+        if at < 0:
+            return None
+        channels.append(struct.unpack(">d", blocks[at + 8:at + 16])[0])
+    return tuple(channels)
+
+
+# --- Adobe descriptors ----------------------------------------------------
+# A descriptor is a format inside the format: a class, then a count, then
+# key/type/value triples. Only the shape a solid-colour fill needs is built
+# here, which is one nested descriptor holding three doubles.
+
+def _solid_colour_descriptor(colour: tuple[int, int, int]) -> bytes:
+    rgb = _descriptor(b"RGBC", [
+        (b"Rd  ", _double(colour[0])),
+        (b"Grn ", _double(colour[1])),
+        (b"Bl  ", _double(colour[2])),
+    ])
+    payload = _descriptor(b"null", [(b"Clr ", b"Objc" + rgb)])
+    return struct.pack(">I", 16) + payload      # descriptor version
+
+
+def _descriptor(class_id: bytes, entries: list[tuple[bytes, bytes]]) -> bytes:
+    out = struct.pack(">I", 0)                  # no unicode class name
+    out += struct.pack(">I", len(class_id)) + class_id
+    out += struct.pack(">I", len(entries))
+    for key, value in entries:
+        out += struct.pack(">I", 0) + key       # a four-character key writes its length as 0
+        out += value
+    return out
+
+
+def _double(value: float) -> bytes:
+    return b"doub" + struct.pack(">d", float(value))
+
+
+def _layer_block(key: bytes, payload: bytes) -> bytes:
+    body = payload + b"\x00" * (-len(payload) % 4)
+    return _BLOCK_SIGNATURE + key + struct.pack(">I", len(body)) + body
+
+
 # --- reading back, for the tests and for anyone checking a file -----------
 
 def read_record_header(blob: bytes, index: int) -> tuple[int, int]:

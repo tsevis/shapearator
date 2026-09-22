@@ -678,17 +678,44 @@ class IconExtractor:
                     continue
                 layers.append(layer)
 
+        mode = self.settings.psd_layers
+        geometry: dict[str, tuple] = {}
+        if mode in ("bitmap_paths", "vector"):
+            geometry = dict(self._icon_geometry(
+                icons, grouped_items, canvas_size, uniform_scale))
+
         resources = b""
-        if self.settings.psd_layers in ("bitmap_paths", "vector"):
-            resources = psd_vector.path_resources(
-                self._icon_geometry(icons, grouped_items, canvas_size, uniform_scale),
-                document)
+        if mode == "bitmap_paths":
+            resources = psd_vector.path_resources(list(geometry.items()), document)
+
+        extras: list[bytes] | None = None
+        if mode == "vector":
+            # A shape whose geometry would not parse keeps its pixels and is
+            # named in the warnings; losing the layer as well would cost the
+            # user the shape entirely for the sake of an outline.
+            extras = [
+                psd_vector.shape_layer_blocks(
+                    geometry.get(layer.name, ()), document,
+                    psd_export.dominant_colour(layer.rgba))
+                for layer in layers
+            ]
+            without = [layer.name for layer in layers if not geometry.get(layer.name)]
+            if without:
+                undrawn_paths = (
+                    f"{len(without)} shape(s) have no vector outline in the PSD and are "
+                    f"flat layers instead: {', '.join(without[:8])}"
+                    f"{' ...' if len(without) > 8 else ''}.",
+                )
+            else:
+                undrawn_paths = ()
+        else:
+            undrawn_paths = ()
 
         write_psd(output_dir / "psd" / f"{input_path.stem}.psd", layers, document,
-                  extra_resources=resources)
+                  extra_resources=resources, layer_extras=extras)
         if not undrawn:
-            return ()
-        return (
+            return undrawn_paths
+        return undrawn_paths + (
             f"{len(undrawn)} shape(s) covered no pixel once rasterised and are not "
             f"in the PSD, though their own files were exported: "
             f"{', '.join(undrawn[:8])}{' ...' if len(undrawn) > 8 else ''}.",

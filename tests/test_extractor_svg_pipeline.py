@@ -519,3 +519,44 @@ def test_a_path_lands_where_the_shape_is(sheet, tmp_path, fake_inkscape):
     anchors = [psd_vector.read_knot(blob, i).anchor for i in range(1, 5)]
     assert min(v for v, _h in anchors) == pytest.approx(0.10, abs=0.01)
     assert min(h for _v, h in anchors) == pytest.approx(0.10, abs=0.01)
+
+
+def test_vector_mode_gives_every_layer_a_vector_mask(sheet, tmp_path, fake_inkscape):
+    from psd_tools import PSDImage
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    extractor(psd_layers="vector")._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    layers = list(PSDImage.open(out / "psd" / "sheet.psd"))
+    assert layers, "nothing was written"
+    assert all(layer.has_vector_mask() for layer in layers)
+    assert all(layer.kind == "solidcolorfill" for layer in layers)
+
+
+def test_bitmap_mode_leaves_layers_without_masks(sheet, tmp_path, fake_inkscape):
+    from psd_tools import PSDImage
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+
+    extractor(psd_layers="bitmap")._extract_from_svg(
+        sheet(GROUPED_SHEET), out, {"psd"}, None)
+
+    assert not any(l.has_vector_mask() for l in PSDImage.open(out / "psd" / "sheet.psd"))
+
+
+def test_a_shape_whose_geometry_is_unreadable_still_gets_a_layer(sheet, tmp_path, fake_inkscape):
+    """A path that will not parse must not cost the shape its pixels too."""
+    from psd_tools import PSDImage
+    fake_inkscape(GROUPED_BOXES)
+    out = tmp_path / "out"
+    markup = GROUPED_SHEET.replace('<rect x="60" y="60" width="10" height="10"/>',
+                                   '<path d="banana"/>')
+
+    icons, warnings = extractor(psd_layers="vector")._extract_from_svg(
+        sheet(markup), out, {"psd"}, None)
+
+    layers = list(PSDImage.open(out / "psd" / "sheet.psd"))
+    assert len(layers) == len(icons)
+    assert any("icon_002" in warning for warning in warnings), warnings

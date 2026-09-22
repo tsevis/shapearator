@@ -83,6 +83,25 @@ def layer_from_render(
                     top=placement.top, left=placement.left)
 
 
+def dominant_colour(rgba: np.ndarray) -> tuple[int, int, int]:
+    """The commonest colour among a layer's opaque pixels.
+
+    A shape layer is a flat fill behind a mask, so it needs one colour for a
+    shape drawn in many. The mode rather than the mean: averaging a black
+    shape with an antialiased edge gives grey, which is the colour of nothing
+    in the artwork.
+    """
+    if rgba.size == 0:
+        return (0, 0, 0)
+    opaque = rgba[rgba[:, :, 3] > 127]
+    if len(opaque) == 0:
+        return (0, 0, 0)
+    packed = (opaque[:, 0].astype(np.uint32) << 16) | (opaque[:, 1].astype(np.uint32) << 8) | opaque[:, 2]
+    values, counts = np.unique(packed, return_counts=True)
+    winner = int(values[int(np.argmax(counts))])
+    return ((winner >> 16) & 255, (winner >> 8) & 255, winner & 255)
+
+
 def document_transform(
     layout: str,
     source_bounds: tuple[int, int, int, int],
