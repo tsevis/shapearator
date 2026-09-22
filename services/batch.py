@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 from services.extraction_types import ExtractedIcon, ExtractionProgress, ExtractionResult
+from services.geometry import compute_uniform_scale
 from services.extractor import IconExtractor
 from services.sheets import find_sheets
 from services.semantic_naming import SemanticPreflightError
@@ -140,6 +141,7 @@ def extract_folder(
         )
 
     planned = plan_output_dirs(sheets, output_root)
+    shared_scale = _folder_uniform_scale(settings, sheets, progress_callback)
     outcomes: list[SheetOutcome] = []
 
     for index, sheet in enumerate(sheets, start=1):
@@ -155,6 +157,7 @@ def extract_folder(
             result = IconExtractor(settings).extract(
                 sheet, destination, formats,
                 progress_callback=forward, allow_unnamed=allow_unnamed,
+                uniform_scale=shared_scale,
             )
         except SemanticPreflightError:
             # Not this sheet's problem, and skipping it fixes nothing: the
@@ -174,6 +177,42 @@ def extract_folder(
         outcomes.append(SheetOutcome(input_path=sheet, output_dir=destination, result=result))
 
     return BatchOutcome(folder=folder, output_root=output_root, sheets=tuple(outcomes))
+
+
+def _folder_uniform_scale(
+    settings: AppSettings,
+    sheets: list[Path],
+    progress_callback: Callable[[ExtractionProgress], None] | None,
+) -> float | None:
+    """One scale for the whole folder, or None to let each sheet decide.
+
+    ``uniform_to_largest`` promises that every icon in a set is scaled the
+    same way. Derived per sheet that promise is empty across a folder: a sheet
+    whose largest shape is small gets a large scale, and the set it belongs to
+    comes out inconsistent. So every sheet is measured before any is written.
+
+    Only this one mode pays for the pass. ``original`` ignores the scale and
+    ``individual_fit`` derives it per icon, so measuring for them would cost
+    an extra detection run per sheet and change nothing.
+    """
+    if settings.canvas_mode != "uniform_to_largest":
+        return None
+
+    extractor = IconExtractor(settings)
+    sizes: list[tuple[int, int]] = []
+    for index, sheet in enumerate(sheets, start=1):
+        _emit(progress_callback, "measure", index, len(sheets),
+              f"Measuring {index} of {len(sheets)}: {sheet.name}")
+        try:
+            sizes.extend(extractor.measure(sheet))
+        except Exception:
+            # A sheet that cannot be measured cannot be extracted either. It
+            # fails again in a moment, where the failure is reported against
+            # its name rather than swallowed into a scale.
+            continue
+
+    canvas = (max(1, int(settings.output_width)), max(1, int(settings.output_height)))
+    return compute_uniform_scale(sizes, canvas)
 
 
 def _remove_if_empty(directory: Path) -> None:

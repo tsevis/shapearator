@@ -92,7 +92,7 @@ def test_a_sheet_that_fails_does_not_stop_the_others(tmp_path, monkeypatch):
             pass
 
         def extract(self, input_path, output_dir, formats, progress_callback=None,
-                    allow_unnamed=False):
+                    allow_unnamed=False, uniform_scale=None):
             if input_path.name == "b.svg":
                 raise RuntimeError("could not rasterize")
             return fake_result(input_path, output_dir)
@@ -113,7 +113,7 @@ def test_the_failure_is_reported_with_the_sheet_that_caused_it(tmp_path, monkeyp
             pass
 
         def extract(self, input_path, output_dir, formats, progress_callback=None,
-                    allow_unnamed=False):
+                    allow_unnamed=False, uniform_scale=None):
             if input_path.name == "broken.svg":
                 raise RuntimeError("could not rasterize")
             return fake_result(input_path, output_dir)
@@ -162,7 +162,7 @@ def test_progress_counts_sheets_not_icons(tmp_path, monkeypatch):
             pass
 
         def extract(self, input_path, output_dir, formats, progress_callback=None,
-                    allow_unnamed=False):
+                    allow_unnamed=False, uniform_scale=None):
             return fake_result(input_path, output_dir)
 
     monkeypatch.setattr(batch, "IconExtractor", Extractor)
@@ -184,7 +184,7 @@ def test_a_sheet_that_failed_leaves_no_empty_folder_behind(tmp_path, monkeypatch
             pass
 
         def extract(self, input_path, output_dir, formats, progress_callback=None,
-                    allow_unnamed=False):
+                    allow_unnamed=False, uniform_scale=None):
             output_dir.mkdir(parents=True, exist_ok=True)   # staging does this first
             if input_path.name == "broken.svg":
                 raise RuntimeError("could not rasterize")
@@ -234,7 +234,7 @@ def test_an_unready_backend_stops_the_run_instead_of_failing_every_sheet(tmp_pat
             pass
 
         def extract(self, input_path, output_dir, formats, progress_callback=None,
-                    allow_unnamed=False):
+                    allow_unnamed=False, uniform_scale=None):
             attempts.append(input_path.name)
             raise SemanticPreflightError(PreflightResult(False, "llamacpp", "not reachable"))
 
@@ -253,7 +253,7 @@ def test_giving_up_on_the_backend_leaves_no_folder_behind(tmp_path, monkeypatch)
             pass
 
         def extract(self, input_path, output_dir, formats, progress_callback=None,
-                    allow_unnamed=False):
+                    allow_unnamed=False, uniform_scale=None):
             output_dir.mkdir(parents=True, exist_ok=True)
             raise SemanticPreflightError(PreflightResult(False, "llamacpp", "not reachable"))
 
@@ -263,3 +263,103 @@ def test_giving_up_on_the_backend_leaves_no_folder_behind(tmp_path, monkeypatch)
         batch.extract_folder(AppSettings(), folder, out, {"svg"})
 
     assert not (out / "a").exists()
+
+
+# --- one scale for the whole folder ---------------------------------------
+
+class MeasuringExtractor:
+    """Records the scale it was handed, and what it was asked to measure."""
+
+    calls: dict = {}
+
+    def __init__(self, settings):
+        self.settings = settings
+
+    def measure(self, input_path):
+        # Padded sizes, which is what the real measure() returns.
+        MeasuringExtractor.calls.setdefault("measured", []).append(input_path.name)
+        return {"big.svg": [(300, 160)], "small.svg": [(40, 40)]}[input_path.name]
+
+    def extract(self, input_path, output_dir, formats, progress_callback=None,
+                allow_unnamed=False, uniform_scale=None):
+        MeasuringExtractor.calls.setdefault("scales", []).append((input_path.name, uniform_scale))
+        return fake_result(input_path, output_dir)
+
+
+@pytest.fixture
+def measuring(monkeypatch):
+    MeasuringExtractor.calls = {}
+    monkeypatch.setattr(batch, "IconExtractor", MeasuringExtractor)
+    return MeasuringExtractor.calls
+
+
+def test_uniform_scale_is_computed_across_every_sheet(tmp_path, measuring):
+    """The point of the mode is that a set lines up. Per sheet, it does not.
+
+    Two sheets, one holding a 300x160 shape and one a 40x40: scaled per sheet
+    the small one comes out seven times larger than it should relative to its
+    neighbour, which is the opposite of what "uniform" promises.
+    """
+    folder = write_sheets(tmp_path / "in", ["big.svg", "small.svg"])
+    settings = AppSettings(canvas_mode="uniform_to_largest", output_width=512,
+                           output_height=512, padding=8)
+
+    batch.extract_folder(settings, folder, tmp_path / "out", {"svg"})
+
+    scales = {scale for _name, scale in measuring["scales"]}
+    assert len(scales) == 1, measuring["scales"]
+    # 300 wide is the largest padded source anywhere in the folder, and width
+    # is the tighter fit of the two; the small sheet does not get its own.
+    assert scales.pop() == pytest.approx(512 / 300)
+
+
+def test_every_sheet_is_measured_before_any_is_exported(tmp_path, measuring):
+    """A scale computed from sheets one to three is not a folder-wide scale."""
+    folder = write_sheets(tmp_path / "in", ["big.svg", "small.svg"])
+    settings = AppSettings(canvas_mode="uniform_to_largest")
+
+    batch.extract_folder(settings, folder, tmp_path / "out", {"svg"})
+
+    assert measuring["measured"] == ["big.svg", "small.svg"]
+
+
+def test_the_other_canvas_modes_do_not_pay_for_a_measuring_pass(tmp_path, measuring):
+    """Measuring costs an Inkscape query per sheet; only one mode needs it."""
+    folder = write_sheets(tmp_path / "in", ["big.svg", "small.svg"])
+    settings = AppSettings(canvas_mode="individual_fit")
+
+    batch.extract_folder(settings, folder, tmp_path / "out", {"svg"})
+
+    assert "measured" not in measuring
+    assert [scale for _name, scale in measuring["scales"]] == [None, None]
+
+
+def test_a_sheet_that_cannot_be_measured_does_not_stop_the_run(tmp_path, monkeypatch):
+    """A corrupt sheet fails at extraction, where it is reported by name."""
+    folder = write_sheets(tmp_path / "in", ["big.svg", "broken.svg"])
+    seen = []
+
+    class Extractor:
+        def __init__(self, settings):
+            pass
+
+        def measure(self, input_path):
+            if input_path.name == "broken.svg":
+                raise RuntimeError("could not parse")
+            return [(300, 160)]
+
+        def extract(self, input_path, output_dir, formats, progress_callback=None,
+                    allow_unnamed=False, uniform_scale=None):
+            seen.append((input_path.name, uniform_scale))
+            if input_path.name == "broken.svg":
+                raise RuntimeError("could not parse")
+            return fake_result(input_path, output_dir)
+
+    monkeypatch.setattr(batch, "IconExtractor", Extractor)
+    settings = AppSettings(canvas_mode="uniform_to_largest", output_width=512,
+                           output_height=512, padding=8)
+    outcome = batch.extract_folder(settings, folder, tmp_path / "out", {"svg"})
+
+    assert [name for name, _s in seen] == ["big.svg", "broken.svg"]
+    assert seen[0][1] == pytest.approx(512 / 300), "the readable sheet still sets the scale"
+    assert outcome.failed_count == 1

@@ -125,8 +125,14 @@ class IconExtractor:
         formats: set[str],
         progress_callback: Callable[[ExtractionProgress], None] | None = None,
         allow_unnamed: bool = False,
+        uniform_scale: float | None = None,
     ) -> ExtractionResult:
         """Extract every icon in ``input_path`` into ``output_dir``.
+
+        ``uniform_scale`` pins the scale instead of deriving it from this
+        sheet's own icons. A folder run passes one computed across every
+        sheet, because a scale derived per sheet makes a set that was meant to
+        line up come out inconsistent.
 
         When semantic naming is on, the vision backend is checked *before* any
         pixel is written: an unreachable model raises ``SemanticPreflightError``
@@ -148,10 +154,12 @@ class IconExtractor:
             staged = staging.staging_dir
             self._emit_progress(progress_callback, "prepare", 0, 1, "Loading source sheet")
             if suffix == ".png":
-                icons = self._extract_from_png(input_path, staged, formats, progress_callback)
+                icons = self._extract_from_png(
+                    input_path, staged, formats, progress_callback, uniform_scale
+                )
             else:
                 icons, svg_warnings = self._extract_from_svg(
-                    input_path, staged, formats, progress_callback
+                    input_path, staged, formats, progress_callback, uniform_scale
                 )
                 warnings += svg_warnings
 
@@ -181,6 +189,27 @@ class IconExtractor:
             warnings=warnings,
             commit=report,
         )
+
+    def measure(self, input_path: Path) -> list[tuple[int, int]]:
+        """Padded source sizes for every icon in one sheet, writing nothing.
+
+        The folder runner needs these before the first sheet is exported: one
+        scale for a whole set cannot be known until every sheet has been
+        looked at. Detection runs exactly as it does during extraction, so the
+        sizes measured here are the ones that will be exported.
+        """
+        suffix = input_path.suffix.lower()
+        if suffix not in {".png", ".svg"}:
+            raise RuntimeError("Supported inputs are .png and .svg")
+        if suffix == ".png":
+            boxes, _binary, _background = self._plan_png(self._load_raster(input_path))
+            return self._padded_sizes(boxes)
+        grouped_items, _warnings = self._plan_svg(ET.parse(input_path))
+        return self._padded_sizes(box for box, _children in grouped_items)
+
+    def _padded_sizes(self, boxes) -> list[tuple[int, int]]:
+        pad = self.settings.padding * 2
+        return [(box.w + pad, box.h + pad) for box in boxes]
 
     def _provider_summary(self) -> str:
         return {
@@ -272,23 +301,36 @@ class IconExtractor:
 
     # --- raster input -----------------------------------------------------
 
+    @staticmethod
+    def _load_raster(input_path: Path):
+        bgr = cv2.imread(str(input_path), cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise RuntimeError(f"Could not load raster image: {input_path}")
+        return bgr
+
+    def _plan_png(self, bgr):
+        """Where the icons are on a sheet, before anything is cropped."""
+        binary = build_foreground_mask(bgr)
+        boxes = [
+            tighten_box(binary, box)
+            for box in detect_icon_boxes(binary, self.settings.min_area, self.settings.merge_gap)
+        ]
+        return boxes, binary, estimate_background_rgba(bgr)
+
     def _extract_from_png(
         self,
         input_path: Path,
         output_dir: Path,
         formats: set[str],
         progress_callback: Callable[[ExtractionProgress], None] | None,
+        uniform_scale: float | None = None,
     ) -> list[ExtractedIcon]:
-        bgr = cv2.imread(str(input_path), cv2.IMREAD_COLOR)
-        if bgr is None:
-            raise RuntimeError(f"Could not load raster image: {input_path}")
-        binary = build_foreground_mask(bgr)
-        background_rgba = estimate_background_rgba(bgr)
-        boxes = [tighten_box(binary, box) for box in detect_icon_boxes(binary, self.settings.min_area, self.settings.merge_gap)]
+        bgr = self._load_raster(input_path)
+        boxes, binary, background_rgba = self._plan_png(bgr)
         self._emit_progress(progress_callback, "detect", len(boxes), len(boxes), f"Detected {len(boxes)} icons")
         canvas_size = self._canvas_size()
-        source_sizes = [(box.w + self.settings.padding * 2, box.h + self.settings.padding * 2) for box in boxes]
-        uniform_scale = compute_uniform_scale(source_sizes, canvas_size)
+        if uniform_scale is None:
+            uniform_scale = compute_uniform_scale(self._padded_sizes(boxes), canvas_size)
         icons: list[ExtractedIcon] = []
         for index, box in enumerate(boxes, start=1):
             crop_box = box.padded(self.settings.padding, bgr.shape[1], bgr.shape[0])
@@ -330,40 +372,19 @@ class IconExtractor:
         output_dir: Path,
         formats: set[str],
         progress_callback: Callable[[ExtractionProgress], None] | None,
+        uniform_scale: float | None = None,
     ) -> tuple[list[ExtractedIcon], tuple[str, ...]]:
         tree = ET.parse(input_path)
+        grouped_items, warnings = self._plan_svg(tree)
         root = tree.getroot()
-        view_box = parse_viewbox(root)
-        ensure_element_ids(root)
-
         parents = build_parent_map(root)
-        element_boxes = self._query_element_boxes(tree)
-
-        candidates = find_icon_elements(root, element_boxes)
-        warnings: tuple[str, ...] = ()
-        if splits_by_structure(candidates, self.settings.svg_split):
-            # The artwork says which pieces belong together -- or the user
-            # overrode it. Either way, take it at its word: one element per
-            # icon, no detection tuning involved.
-            grouped_items = [
-                (element_boxes[element.attrib["id"]], [element]) for element in candidates
-            ]
-        else:
-            # Loose shapes, not groups -- a hand-drawn sheet where one icon is
-            # several separate strokes. Those have to be clustered visually.
-            raster_groups, raster_shape = self._detect_raster_groups(tree)
-            grouped_items = self._group_svg_children(
-                candidates, element_boxes, raster_groups, raster_shape, view_box
-            )
-            warnings = describe_collapsed_split(len(candidates), len(grouped_items))
 
         self._emit_progress(progress_callback, "detect", len(grouped_items), len(grouped_items), f"Detected {len(grouped_items)} icons")
         canvas_size = self._canvas_size()
-        source_sizes = [
-            (box.w + self.settings.padding * 2, box.h + self.settings.padding * 2)
-            for box, _children in grouped_items
-        ]
-        uniform_scale = compute_uniform_scale(source_sizes, canvas_size)
+        if uniform_scale is None:
+            uniform_scale = compute_uniform_scale(
+                self._padded_sizes(box for box, _children in grouped_items), canvas_size
+            )
 
         icons: list[ExtractedIcon] = []
         for index, (box, children) in enumerate(grouped_items, start=1):
@@ -384,6 +405,36 @@ class IconExtractor:
 
         self._prune_empty_dirs(output_dir, formats)
         return icons, warnings
+
+    def _plan_svg(
+        self, tree: ET.ElementTree
+    ) -> tuple[list[tuple[Box, list[ET.Element]]], tuple[str, ...]]:
+        """Decide which elements become which icon, writing nothing.
+
+        Shared by the export and by `measure`, so a sheet measured for a
+        folder's uniform scale is cut exactly the way it will be exported.
+        """
+        root = tree.getroot()
+        view_box = parse_viewbox(root)
+        ensure_element_ids(root)
+        element_boxes = self._query_element_boxes(tree)
+        candidates = find_icon_elements(root, element_boxes)
+
+        if splits_by_structure(candidates, self.settings.svg_split):
+            # The artwork says which pieces belong together -- or the user
+            # overrode it. Either way, take it at its word: one element per
+            # icon, no detection tuning involved.
+            return [
+                (element_boxes[element.attrib["id"]], [element]) for element in candidates
+            ], ()
+
+        # Loose shapes, not groups -- a hand-drawn sheet where one icon is
+        # several separate strokes. Those have to be clustered visually.
+        raster_groups, raster_shape = self._detect_raster_groups(tree)
+        grouped_items = self._group_svg_children(
+            candidates, element_boxes, raster_groups, raster_shape, view_box
+        )
+        return grouped_items, describe_collapsed_split(len(candidates), len(grouped_items))
 
     def _query_element_boxes(self, tree: ET.ElementTree) -> dict[str, Box]:
         """Ask Inkscape for the rendered bounds of every identified element."""
